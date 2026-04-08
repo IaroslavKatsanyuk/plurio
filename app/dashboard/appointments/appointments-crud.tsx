@@ -8,6 +8,7 @@ import {
 } from "@dnd-kit/core";
 import type { ClientRow, AppointmentRow, AppointmentStatus } from "@/services/types";
 import { Button } from "@/components/ui/button";
+import { DateTimePickerInput } from "@/components/ui/date-time-picker-input";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
@@ -434,17 +435,19 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
               </option>
             ))}
           </select>
-          <Input
-            type="datetime-local"
+          <DateTimePickerInput
             value={form.starts_at}
-            onChange={(e) =>
-              setForm((prev) => ({ ...prev, starts_at: e.target.value }))
+            onChange={(nextValue) =>
+              setForm((prev) => ({ ...prev, starts_at: nextValue }))
             }
+            placeholder="Початок"
           />
-          <Input
-            type="datetime-local"
+          <DateTimePickerInput
             value={form.ends_at}
-            onChange={(e) => setForm((prev) => ({ ...prev, ends_at: e.target.value }))}
+            onChange={(nextValue) =>
+              setForm((prev) => ({ ...prev, ends_at: nextValue }))
+            }
+            placeholder="Кінець"
           />
           <select
             value={form.status}
@@ -493,17 +496,19 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
                 </option>
               ))}
             </select>
-            <Input
-              type="datetime-local"
+            <DateTimePickerInput
               value={form.starts_at}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, starts_at: e.target.value }))
+              onChange={(nextValue) =>
+                setForm((prev) => ({ ...prev, starts_at: nextValue }))
               }
+              placeholder="Початок"
             />
-            <Input
-              type="datetime-local"
+            <DateTimePickerInput
               value={form.ends_at}
-              onChange={(e) => setForm((prev) => ({ ...prev, ends_at: e.target.value }))}
+              onChange={(nextValue) =>
+                setForm((prev) => ({ ...prev, ends_at: nextValue }))
+              }
+              placeholder="Кінець"
             />
             <select
               value={form.status}
@@ -586,8 +591,18 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
               </option>
             ))}
           </select>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+          <DateTimePickerInput
+            mode="date"
+            value={fromDate}
+            onChange={(nextValue) => setFromDate(nextValue)}
+            placeholder="Від дати"
+          />
+          <DateTimePickerInput
+            mode="date"
+            value={toDate}
+            onChange={(nextValue) => setToDate(nextValue)}
+            placeholder="До дати"
+          />
         </div>
 
         {error ? (
