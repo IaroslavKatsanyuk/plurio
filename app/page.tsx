@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -16,6 +17,17 @@ export default function Home() {
           <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
             Почни з редагування файлу app/page.tsx.
           </h1>
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-500 dark:text-zinc-400">
+            <Link href="/login" className="font-medium text-zinc-800 underline dark:text-zinc-200">
+              Увійти
+            </Link>
+            <Link href="/register" className="font-medium text-zinc-800 underline dark:text-zinc-200">
+              Реєстрація
+            </Link>
+            <Link href="/dashboard" className="font-medium text-zinc-800 underline dark:text-zinc-200">
+              Дашборд
+            </Link>
+          </p>
           <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
             Потрібен стартовий шаблон чи інструкції? Переглянь{" "}
             <a

@@ -1,12 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import type { User } from "@supabase/supabase-js";
 
 import { getSupabasePublicEnv } from "./env";
 
+export type SessionUpdateResult = {
+  response: NextResponse;
+  user: User | null;
+};
+
 /**
- * Оновлює сесію авторизації та синхронізує cookies. Викликай з кореневого `middleware.ts`.
+ * Оновлює сесію, синхронізує cookies і повертає поточного користувача (для захисту маршрутів).
  */
-export async function updateSession(request: NextRequest) {
+export async function updateSession(
+  request: NextRequest,
+): Promise<SessionUpdateResult> {
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -32,8 +40,9 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  // Не вставляй логіку між createServerClient і getUser() — уникнеш тонких багів auth.
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  return supabaseResponse;
+  return { response: supabaseResponse, user };
 }

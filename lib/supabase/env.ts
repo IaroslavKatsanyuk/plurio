@@ -7,7 +7,7 @@ export function getSupabasePublicEnv(): { url: string; anonKey: string } {
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
     throw new Error(
-      "Відсутні NEXT_PUBLIC_SUPABASE_URL або NEXT_PUBLIC_SUPABASE_ANON_KEY. Скопіюй .env.example у .env.local і заповни значення з дашборду Supabase (Project Settings → API).",
+      "Відсутні NEXT_PUBLIC_SUPABASE_URL або NEXT_PUBLIC_SUPABASE_ANON_KEY. Додай їх у .env або .env.local (значення з дашборду Supabase: Project Settings → API).",
     );
   }
   return { url, anonKey };
