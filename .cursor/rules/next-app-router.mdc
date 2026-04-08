@@ -1,0 +1,12 @@
+---
+description: Next.js App Router — Server Components, маршрути, мінімум клієнтського JS
+globs: "app/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Next.js App Router
+
+- За замовчуванням **Server Components**. Додавай `"use client"` лише для інтерактиву, хуків або API браузера.
+- Маршрути: узгоджуй зі структурою продукту — `/login`, `/dashboard` (наприклад `/dashboard/appointments`, `/dashboard/clients`, `/dashboard/settings`), публічний **`/u/[username]`** для бронювання.
+- Завантаження даних: за можливості на сервері; доступ до даних лише через **сервіси**, а не інлайновий ad-hoc Supabase в RSC без service layer.
+- `middleware.ts`: auth і редіректи — тримай логіку маленькою; узгоджуй із патернами сесії Supabase в проєкті.
