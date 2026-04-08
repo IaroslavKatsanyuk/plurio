@@ -6,7 +6,7 @@ import { LoginForm } from "./login-form";
 
 function safeNextPath(next: string | undefined): string {
   if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/dashboard";
+    return "/appointments";
   }
   return next;
 }
@@ -22,7 +22,7 @@ export default async function LoginPage({
   return (
     <AuthShell title="Вхід">
         <LoginForm nextPath={nextPath} />
-        <p className="mt-6 text-center text-sm text-zinc-500">
+        <p className="mt-6 text-center text-sm text-violet-500">
           <Link href="/" className="underline">
             На головну
           </Link>

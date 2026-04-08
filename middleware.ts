@@ -13,14 +13,38 @@ export async function middleware(request: NextRequest) {
   const { response, user } = await updateSession(request);
   const pathname = request.nextUrl.pathname;
 
-  if (pathname.startsWith("/dashboard") && !user) {
+  if (pathname === "/dashboard" || pathname === "/dashboard/appointments") {
+    const target = new URL("/appointments", request.url);
+    return NextResponse.redirect(target);
+  }
+  if (pathname === "/dashboard/clients") {
+    const target = new URL("/clients", request.url);
+    return NextResponse.redirect(target);
+  }
+  if (pathname === "/запис" || pathname === "/zapis") {
+    const target = new URL("/appointments", request.url);
+    return NextResponse.redirect(target);
+  }
+  if (pathname === "/клієнти" || pathname === "/kliyenty") {
+    const target = new URL("/clients", request.url);
+    return NextResponse.redirect(target);
+  }
+
+  const isProtectedPath =
+    pathname === "/appointments" ||
+    pathname.startsWith("/appointments/") ||
+    pathname === "/clients" ||
+    pathname.startsWith("/clients/") ||
+    pathname.startsWith("/dashboard");
+
+  if (isProtectedPath && !user) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   if ((pathname === "/login" || pathname === "/register") && user) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL("/appointments", request.url));
   }
 
   return response;

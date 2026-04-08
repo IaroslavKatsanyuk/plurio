@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
+const APPOINTMENTS_PATH = "/appointments";
+
 function getSiteOrigin(): string {
   return (
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ??
@@ -14,7 +16,7 @@ function getSiteOrigin(): string {
 
 function safeNextPath(next: string | undefined): string {
   if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/dashboard";
+    return APPOINTMENTS_PATH;
   }
   return next;
 }
@@ -63,7 +65,7 @@ export async function signUpWithPassword(input: {
     email: input.email.trim(),
     password: input.password,
     options: {
-      emailRedirectTo: `${origin}/auth/callback?next=/dashboard`,
+      emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent("/appointments")}`,
     },
   });
 
@@ -73,7 +75,7 @@ export async function signUpWithPassword(input: {
 
   if (data.session) {
     revalidatePath("/", "layout");
-    redirect("/dashboard");
+    redirect(APPOINTMENTS_PATH);
   }
 
   return { ok: true, needsEmailConfirmation: true };

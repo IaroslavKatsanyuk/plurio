@@ -8,7 +8,7 @@ export default function RegisterPage() {
   return (
     <AuthShell title="Реєстрація">
         <RegisterForm />
-        <p className="mt-6 text-center text-sm text-zinc-500">
+        <p className="mt-6 text-center text-sm text-violet-500">
           <Link href="/" className="underline">
             На головну
           </Link>

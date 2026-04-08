@@ -13,6 +13,7 @@ export type ClientRow = {
   id: string;
   user_id: string;
   name: string;
+  telegram_username: string | null;
   email: string | null;
   phone: string | null;
   notes: string | null;
@@ -22,6 +23,15 @@ export type ClientRow = {
 
 export type CreateClientInput = {
   name: string;
+  telegram_username?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+};
+
+export type UpdateClientInput = {
+  name?: string;
+  telegram_username?: string | null;
   email?: string | null;
   phone?: string | null;
   notes?: string | null;
@@ -34,17 +44,23 @@ export type AppointmentRow = {
   title: string | null;
   starts_at: string;
   ends_at: string;
-  status: string;
+  status: AppointmentStatus;
   notes: string | null;
   created_at: string;
   updated_at: string;
 };
+
+export type AppointmentStatus =
+  | "scheduled"
+  | "confirmed"
+  | "cancelled"
+  | "completed";
 
 export type CreateAppointmentInput = {
   client_id?: string | null;
   title?: string | null;
   starts_at: string;
   ends_at: string;
-  status?: "scheduled" | "confirmed" | "cancelled" | "completed";
+  status?: AppointmentStatus;
   notes?: string | null;
 };
