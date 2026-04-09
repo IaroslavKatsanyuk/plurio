@@ -546,6 +546,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
               }
               placeholder="Початок"
               disablePastDays
+              calendarPlacement="above"
             />
           </label>
           <label className="grid gap-1 text-sm text-violet-200">
@@ -658,6 +659,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
               }
               placeholder="Початок"
               disablePastDays
+              calendarPlacement="above"
             />
           </label>
           <label className="grid gap-1 text-sm text-violet-200">

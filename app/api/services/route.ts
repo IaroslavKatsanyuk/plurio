@@ -26,7 +26,12 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  if (!Number.isFinite(body.duration_minutes) || (body.duration_minutes ?? 0) <= 0) {
+  const durationMinutes = body.duration_minutes;
+  if (
+    typeof durationMinutes !== "number" ||
+    !Number.isFinite(durationMinutes) ||
+    durationMinutes <= 0
+  ) {
     return Response.json(
       { error: { code: "VALIDATION", message: "Тривалість має бути більше 0 хвилин." } },
       { status: 400 },
@@ -35,7 +40,7 @@ export async function POST(request: Request) {
 
   const result = await createService({
     name: body.name,
-    duration_minutes: Math.floor(body.duration_minutes),
+    duration_minutes: Math.floor(durationMinutes),
   });
   if (!result.ok) {
     const status = result.error.code === "UNAUTHORIZED" ? 401 : 400;

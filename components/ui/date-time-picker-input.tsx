@@ -1,9 +1,13 @@
 "use client";
 
 import { CalendarDays, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { CalendarWithTime } from "@/components/ui/calendar-with-time";
+import {
+  CalendarWithTime,
+  DateTimeLocalTimeControls,
+} from "@/components/ui/calendar-with-time";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -15,6 +19,20 @@ type Props = {
   mode?: "date" | "datetime";
   /** Block past calendar days only; time is free to choose on any allowed day. */
   disablePastDays?: boolean;
+  /** Light styling for public / light backgrounds; default matches dark dashboard. */
+  variant?: "default" | "light";
+  /**
+   * Where the calendar panel opens: below the field (filters / page) or above (modals at bottom).
+   * @default "below"
+   */
+  calendarPlacement?: "below" | "above";
+  /**
+   * When set, time is limited to these slot starts (e.g. public booking API).
+   * undefined — free time input; null — loading slots.
+   */
+  slotStartsIso?: string[] | null;
+  /** Calendar popover shows only the date; time is below the trigger (public /u/… booking). */
+  hideTimeInCalendar?: boolean;
 };
 
 function splitDateTime(value: string): { datePart: string; timePart: string } {
@@ -35,6 +53,13 @@ function toDateTimeLocalValue(datePart: string, timePart: string): string {
   return `${datePart}T${timePart}`;
 }
 
+const triggerVariants = {
+  default:
+    "flex h-10 w-full items-center justify-between rounded-lg border border-violet-700/70 bg-violet-950/50 px-3 py-2 text-left text-sm text-violet-100 outline-none transition hover:bg-violet-900/60 focus-visible:ring-2 focus-visible:ring-violet-500",
+  light:
+    "flex h-10 w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 shadow-sm outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-400",
+} as const;
+
 export function DateTimePickerInput({
   id,
   value,
@@ -43,11 +68,17 @@ export function DateTimePickerInput({
   className,
   mode = "datetime",
   disablePastDays = false,
+  variant = "default",
+  calendarPlacement = "below",
+  slotStartsIso,
+  hideTimeInCalendar = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [datePart, setDatePart] = useState("");
   const [timePart, setTimePart] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const timeFieldId = useId();
+  const timeControlId = id ? `${id}-time` : timeFieldId;
 
   useEffect(() => {
     const parts = splitDateTime(value);
@@ -100,15 +131,23 @@ export function DateTimePickerInput({
     });
   }, [value]);
 
+  const closeOnPickDate =
+    mode === "date" || (mode === "datetime" && hideTimeInCalendar);
+
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
+    <div ref={containerRef} className={cn("relative space-y-2", className)}>
       <button
         id={id}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex h-10 w-full items-center justify-between rounded-lg border border-violet-700/70 bg-violet-950/50 px-3 py-2 text-left text-sm text-violet-100 outline-none transition hover:bg-violet-900/60 focus-visible:ring-2 focus-visible:ring-violet-500"
+        className={triggerVariants[variant]}
       >
-        <span className={cn(!displayValue ? "text-violet-400" : undefined)}>
+        <span
+          className={cn(
+            !displayValue &&
+              (variant === "light" ? "text-slate-400" : "text-violet-400"),
+          )}
+        >
           {displayValue || placeholder}
         </span>
         {value ? (
@@ -122,23 +161,46 @@ export function DateTimePickerInput({
               onChange("");
               setOpen(false);
             }}
-            className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-violet-300 transition hover:bg-violet-800/60 hover:text-violet-50"
+            className={cn(
+              "inline-flex h-5 w-5 items-center justify-center rounded-sm transition",
+              variant === "light"
+                ? "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                : "text-violet-300 hover:bg-violet-800/60 hover:text-violet-50",
+            )}
           >
             <X className="h-4 w-4 shrink-0" />
           </span>
         ) : (
-          <CalendarDays className="h-4 w-4 shrink-0 text-violet-300" />
+          <CalendarDays
+            className={cn(
+              "h-4 w-4 shrink-0",
+              variant === "light" ? "text-slate-500" : "text-violet-300",
+            )}
+          />
         )}
       </button>
 
       {open ? (
-        <div className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30">
+        <div
+          className={cn(
+            "absolute left-0 z-30",
+            calendarPlacement === "above"
+              ? "bottom-[calc(100%+0.5rem)]"
+              : "top-[calc(100%+0.5rem)]",
+          )}
+        >
           <div className="grid gap-3">
             <CalendarWithTime
               value={mode === "date" ? datePart : toDateTimeLocalValue(datePart, timePart)}
               mode={mode}
               disablePastDays={disablePastDays}
-              onDateSelect={mode === "date" ? () => setOpen(false) : undefined}
+              slotStartsIso={
+                mode === "datetime" && !hideTimeInCalendar
+                  ? slotStartsIso
+                  : undefined
+              }
+              hideTime={hideTimeInCalendar}
+              onDateSelect={closeOnPickDate ? () => setOpen(false) : undefined}
               onChange={(nextValue) => {
                 const parts = splitDateTime(nextValue);
                 setDatePart(parts.datePart);
@@ -148,6 +210,23 @@ export function DateTimePickerInput({
             />
           </div>
         </div>
+      ) : null}
+
+      {hideTimeInCalendar && mode === "datetime" && datePart ? (
+        <Field>
+          <FieldLabel htmlFor={timeControlId}>Час</FieldLabel>
+          <DateTimeLocalTimeControls
+            id={timeControlId}
+            value={toDateTimeLocalValue(datePart, timePart || "00:00")}
+            onChange={(nextValue) => {
+              const parts = splitDateTime(nextValue);
+              setDatePart(parts.datePart);
+              setTimePart(parts.timePart);
+              onChange(nextValue);
+            }}
+            slotStartsIso={slotStartsIso}
+          />
+        </Field>
       ) : null}
     </div>
   );

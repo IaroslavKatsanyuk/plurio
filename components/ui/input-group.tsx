@@ -25,6 +25,11 @@ export function InputGroupInput({
     <input
       className={cn(
         "h-full w-full bg-transparent px-3 text-sm text-violet-100 outline-none",
+        "[&:-webkit-autofill]:[-webkit-text-fill-color:rgb(237_233_254)]",
+        "[&:-webkit-autofill]:[box-shadow:0_0_0_1000px_rgb(39_19_72_/_0.9)_inset]",
+        "[&:-webkit-autofill]:[transition:background-color_99999s_ease-out_0s]",
+        "[&:-webkit-autofill:hover]:[box-shadow:0_0_0_1000px_rgb(39_19_72_/_0.9)_inset]",
+        "[&:-webkit-autofill:focus]:[box-shadow:0_0_0_1000px_rgb(39_19_72_/_0.9)_inset]",
         className,
       )}
       {...props}
