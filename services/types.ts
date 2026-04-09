@@ -41,6 +41,7 @@ export type AppointmentRow = {
   id: string;
   user_id: string;
   client_id: string | null;
+  service_id: string | null;
   title: string | null;
   starts_at: string;
   ends_at: string;
@@ -58,9 +59,29 @@ export type AppointmentStatus =
 
 export type CreateAppointmentInput = {
   client_id?: string | null;
+  service_id?: string | null;
   title?: string | null;
   starts_at: string;
   ends_at: string;
   status?: AppointmentStatus;
   notes?: string | null;
+};
+
+export type ServiceRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  duration_minutes: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateServiceInput = {
+  name: string;
+  duration_minutes: number;
+};
+
+export type UpdateServiceInput = {
+  name?: string;
+  duration_minutes?: number;
 };

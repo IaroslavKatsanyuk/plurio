@@ -2,6 +2,7 @@ import { DashboardNavbar } from "@/components/dashboard/navbar";
 import { createClient } from "@/lib/supabase/server";
 import { getAppointments } from "@/services/appointment.service";
 import { getClients } from "@/services/client.service";
+import { getServices } from "@/services/service.service";
 
 import { AppointmentsCrud } from "@/app/dashboard/appointments/appointments-crud";
 
@@ -17,8 +18,10 @@ export default async function AppointmentsPage() {
 
   const appointmentsResult = await getAppointments();
   const clientsResult = await getClients();
+  const servicesResult = await getServices();
   const initialAppointments = appointmentsResult.ok ? appointmentsResult.data : [];
   const initialClients = clientsResult.ok ? clientsResult.data : [];
+  const initialServices = servicesResult.ok ? servicesResult.data : [];
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#120726] via-[#0f061f] to-[#080312]">
@@ -36,6 +39,7 @@ export default async function AppointmentsPage() {
         <AppointmentsCrud
           initialAppointments={initialAppointments}
           clients={initialClients}
+          services={initialServices}
         />
       </main>
     </div>

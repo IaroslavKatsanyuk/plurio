@@ -6,7 +6,13 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/core";
-import type { ClientRow, AppointmentRow, AppointmentStatus } from "@/services/types";
+import { ChevronDown } from "lucide-react";
+import type {
+  ClientRow,
+  AppointmentRow,
+  AppointmentStatus,
+  ServiceRow,
+} from "@/services/types";
 import { Button } from "@/components/ui/button";
 import { DateTimePickerInput } from "@/components/ui/date-time-picker-input";
 import { Input } from "@/components/ui/input";
@@ -17,11 +23,13 @@ import { useMemo, useState } from "react";
 type Props = {
   initialAppointments: AppointmentRow[];
   clients: ClientRow[];
+  services: ServiceRow[];
 };
 
 type CreateForm = {
   title: string;
   client_id: string;
+  service_id: string;
   starts_at: string;
   ends_at: string;
   status: AppointmentStatus;
@@ -36,10 +44,18 @@ const statuses: AppointmentStatus[] = [
   "completed",
 ];
 
+const statusLabels: Record<AppointmentStatus, string> = {
+  scheduled: "Заплановано",
+  confirmed: "Підтверджено",
+  cancelled: "Скасовано",
+  completed: "Завершено",
+};
+
 function defaultForm(): CreateForm {
   return {
     title: "",
     client_id: "",
+    service_id: "",
     starts_at: "",
     ends_at: "",
     status: "scheduled",
@@ -51,6 +67,34 @@ function toLocalDateKey(date: Date): string {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+/** Local YYYY-MM-DDTHH:mm for datetime inputs (must not use UTC slice — parses as local). */
+function toLocalDateTimeInputValue(isoOrTimestamp: string): string {
+  const d = new Date(isoOrTimestamp);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
+function getClientLabel(clients: ClientRow[], clientId: string): string {
+  if (!clientId) {
+    return "Без клієнта";
+  }
+  return clients.find((client) => client.id === clientId)?.name ?? clientId;
+}
+
+function getServiceLabel(services: ServiceRow[], serviceId: string): string {
+  if (!serviceId) {
+    return "Без послуги";
+  }
+  return services.find((service) => service.id === serviceId)?.name ?? serviceId;
 }
 
 function statusBadgeClass(status: AppointmentStatus): string {
@@ -108,7 +152,7 @@ function DraggableAppointment({
           statusBadgeClass(row.status),
         )}
       >
-        {row.status}
+        {statusLabels[row.status]}
       </span>
     </div>
   );
@@ -152,7 +196,7 @@ function DroppableDayColumn({
   );
 }
 
-export function AppointmentsCrud({ initialAppointments, clients }: Props) {
+export function AppointmentsCrud({ initialAppointments, clients, services }: Props) {
   const [rows, setRows] = useState<AppointmentRow[]>(initialAppointments);
   const [form, setForm] = useState<CreateForm>(defaultForm());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -168,6 +212,27 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
     () => new Map(clients.map((c) => [c.id, c.name])),
     [clients],
   );
+  const serviceMap = useMemo(
+    () => new Map(services.map((service) => [service.id, service])),
+    [services],
+  );
+
+  function applyServiceDuration(startsAt: string, serviceId: string): string {
+    if (!startsAt || !serviceId) {
+      return "";
+    }
+    const service = serviceMap.get(serviceId);
+    if (!service) {
+      return "";
+    }
+    const start = new Date(startsAt);
+    if (Number.isNaN(start.getTime())) {
+      return "";
+    }
+    const end = new Date(start.getTime() + service.duration_minutes * 60 * 1000);
+    // Full ISO — slicing drops "Z" and breaks: "T07:00" parses as local, not UTC.
+    return end.toISOString();
+  }
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -176,14 +241,18 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
       }
       const start = new Date(row.starts_at);
       if (fromDate) {
-        const from = new Date(`${fromDate}T00:00:00`);
-        if (start < from) {
+        const from =
+          fromDate.length > 10
+            ? new Date(fromDate)
+            : new Date(`${fromDate}T00:00:00`);
+        if (!Number.isNaN(from.getTime()) && start < from) {
           return false;
         }
       }
       if (toDate) {
-        const to = new Date(`${toDate}T23:59:59`);
-        if (start > to) {
+        const to =
+          toDate.length > 10 ? new Date(toDate) : new Date(`${toDate}T23:59:59`);
+        if (!Number.isNaN(to.getTime()) && start > to) {
           return false;
         }
       }
@@ -233,8 +302,13 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
   }, [filteredRows]);
 
   async function onCreate() {
-    if (!form.starts_at || !form.ends_at) {
-      setError("Поля дати/часу обов'язкові.");
+    if (!form.starts_at || !form.service_id) {
+      setError("Оберіть послугу та початок запису.");
+      return;
+    }
+    const autoEndsAt = applyServiceDuration(form.starts_at, form.service_id);
+    if (!autoEndsAt) {
+      setError("Не вдалося розрахувати кінець запису за тривалістю послуги.");
       return;
     }
     setPending(true);
@@ -246,8 +320,9 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
         body: JSON.stringify({
           title: form.title || null,
           client_id: form.client_id || null,
+          service_id: form.service_id || null,
           starts_at: new Date(form.starts_at).toISOString(),
-          ends_at: new Date(form.ends_at).toISOString(),
+          ends_at: autoEndsAt,
           status: form.status,
         }),
       });
@@ -268,8 +343,13 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
 
   async function onSaveForm() {
     if (editingId) {
-      if (!form.starts_at || !form.ends_at) {
-        setError("Поля дати/часу обов'язкові.");
+      if (!form.starts_at || !form.service_id) {
+        setError("Оберіть послугу та початок запису.");
+        return;
+      }
+      const autoEndsAt = applyServiceDuration(form.starts_at, form.service_id);
+      if (!autoEndsAt) {
+        setError("Не вдалося розрахувати кінець запису за тривалістю послуги.");
         return;
       }
       setPending(true);
@@ -282,8 +362,9 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
             mode: "full",
             title: form.title || null,
             client_id: form.client_id || null,
+            service_id: form.service_id || null,
             starts_at: new Date(form.starts_at).toISOString(),
-            ends_at: new Date(form.ends_at).toISOString(),
+            ends_at: autoEndsAt,
             status: form.status,
           }),
         });
@@ -303,28 +384,6 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
       return;
     }
     await onCreate();
-  }
-
-  async function onChangeStatus(id: string, status: AppointmentStatus) {
-    setPending(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/appointments/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "status", status }),
-      });
-      const json = (await response.json()) as
-        | { data: AppointmentRow }
-        | { error: { message: string } };
-      if (!response.ok || !("data" in json)) {
-        setError("error" in json ? json.error.message : "Не вдалося оновити статус.");
-        return;
-      }
-      setRows((prev) => prev.map((row) => (row.id === id ? json.data : row)));
-    } finally {
-      setPending(false);
-    }
   }
 
   async function onDelete(id: string) {
@@ -417,54 +476,101 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
         onClose={() => setIsCreateOpen(false)}
         title="Створення запису"
       >
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Input
-            placeholder="Назва"
-            value={form.title}
-            onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-          />
-          <select
-            value={form.client_id}
-            onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
-            className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm text-violet-100"
-          >
-            <option value="">Без клієнта</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-          <DateTimePickerInput
-            value={form.starts_at}
-            onChange={(nextValue) =>
-              setForm((prev) => ({ ...prev, starts_at: nextValue }))
-            }
-            placeholder="Початок"
-          />
-          <DateTimePickerInput
-            value={form.ends_at}
-            onChange={(nextValue) =>
-              setForm((prev) => ({ ...prev, ends_at: nextValue }))
-            }
-            placeholder="Кінець"
-          />
-          <select
-            value={form.status}
-            onChange={(e) =>
-              setForm((prev) => ({
-                ...prev,
-                status: e.target.value as AppointmentStatus,
-              }))
-            }
-            className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm text-violet-100"
-          >
-            {statuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm text-violet-200">
+            Назва
+            <Input
+              placeholder="Назва"
+              value={form.title}
+              onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+            />
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Клієнт
+            <div className="relative">
+              <select
+                value={form.client_id}
+                onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
+                title={getClientLabel(clients, form.client_id)}
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+              >
+                <option value="">Без клієнта</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+            </div>
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Послуга
+            <div className="relative">
+              <select
+                value={form.service_id}
+                onChange={(e) =>
+                  setForm((prev) => {
+                    const serviceId = e.target.value;
+                    const nextEndsAt = applyServiceDuration(prev.starts_at, serviceId);
+                    return {
+                      ...prev,
+                      service_id: serviceId,
+                      ends_at: nextEndsAt,
+                    };
+                  })
+                }
+                title={getServiceLabel(services, form.service_id)}
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+              >
+                <option value="">Без послуги</option>
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name} ({service.duration_minutes} хв)
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+            </div>
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Початок
+            <DateTimePickerInput
+              value={form.starts_at}
+              onChange={(nextValue) =>
+                setForm((prev) => ({
+                  ...prev,
+                  starts_at: nextValue,
+                  ends_at: applyServiceDuration(nextValue, prev.service_id),
+                }))
+              }
+              placeholder="Початок"
+              disablePastDays
+            />
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Статус
+            <div className="relative">
+              <select
+                value={form.status}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    status: e.target.value as AppointmentStatus,
+                  }))
+                }
+                title={statusLabels[form.status]}
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+              >
+                {statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabels[status]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+            </div>
+          </label>
         </div>
         <div className="mt-3">
           <Button type="button" onClick={() => void onCreate()} disabled={pending}>
@@ -473,78 +579,129 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
         </div>
       </Modal>
 
-      {editingId ? (
-        <section className="rounded-2xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-4 text-violet-50">
-          <h2 className="mb-3 text-lg font-semibold text-violet-50">
-            Редагування запису
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <Modal
+        open={editingId !== null}
+        onClose={() => {
+          setEditingId(null);
+          setForm(defaultForm());
+          setError(null);
+        }}
+        title="Редагування запису"
+      >
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm text-violet-200">
+            Назва
             <Input
               placeholder="Назва"
               value={form.title}
               onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
             />
-            <select
-              value={form.client_id}
-              onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
-              className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm text-violet-100"
-            >
-              <option value="">Без клієнта</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Клієнт
+            <div className="relative">
+              <select
+                value={form.client_id}
+                onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
+                title={getClientLabel(clients, form.client_id)}
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+              >
+                <option value="">Без клієнта</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+            </div>
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Послуга
+            <div className="relative">
+              <select
+                value={form.service_id}
+                onChange={(e) =>
+                  setForm((prev) => {
+                    const serviceId = e.target.value;
+                    const nextEndsAt = applyServiceDuration(prev.starts_at, serviceId);
+                    return {
+                      ...prev,
+                      service_id: serviceId,
+                      ends_at: nextEndsAt,
+                    };
+                  })
+                }
+                title={getServiceLabel(services, form.service_id)}
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+              >
+                <option value="">Без послуги</option>
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.name} ({service.duration_minutes} хв)
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+            </div>
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Початок
             <DateTimePickerInput
               value={form.starts_at}
               onChange={(nextValue) =>
-                setForm((prev) => ({ ...prev, starts_at: nextValue }))
-              }
-              placeholder="Початок"
-            />
-            <DateTimePickerInput
-              value={form.ends_at}
-              onChange={(nextValue) =>
-                setForm((prev) => ({ ...prev, ends_at: nextValue }))
-              }
-              placeholder="Кінець"
-            />
-            <select
-              value={form.status}
-              onChange={(e) =>
                 setForm((prev) => ({
                   ...prev,
-                  status: e.target.value as AppointmentStatus,
+                  starts_at: nextValue,
+                  ends_at: applyServiceDuration(nextValue, prev.service_id),
                 }))
               }
-              className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm text-violet-100"
-            >
-              {statuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="mt-3">
-            <Button type="button" onClick={() => void onSaveForm()} disabled={pending}>
-              Зберегти зміни
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="ml-2"
-              onClick={() => {
-                setEditingId(null);
-                setForm(defaultForm());
-              }}
-            >
-              Скасувати
-            </Button>
-          </div>
-        </section>
-      ) : null}
+              placeholder="Початок"
+              disablePastDays
+            />
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Статус
+            <div className="relative">
+              <select
+                value={form.status}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    status: e.target.value as AppointmentStatus,
+                  }))
+                }
+                title={statusLabels[form.status]}
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+              >
+                {statuses.map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabels[status]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+            </div>
+          </label>
+        </div>
+        <div className="mt-3">
+          <Button type="button" onClick={() => void onSaveForm()} disabled={pending}>
+            Зберегти зміни
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="ml-2"
+            onClick={() => {
+              setEditingId(null);
+              setForm(defaultForm());
+              setError(null);
+            }}
+          >
+            Скасувати
+          </Button>
+        </div>
+      </Modal>
 
       <section className="rounded-2xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-4 text-violet-50">
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -582,23 +739,21 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
             onChange={(e) =>
               setStatusFilter(e.target.value as "all" | AppointmentStatus)
             }
-            className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm text-violet-100"
+            className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm leading-none text-violet-100"
           >
             <option value="all">Усі статуси</option>
             {statuses.map((status) => (
               <option key={status} value={status}>
-                {status}
+                {statusLabels[status]}
               </option>
             ))}
           </select>
           <DateTimePickerInput
-            mode="date"
             value={fromDate}
             onChange={(nextValue) => setFromDate(nextValue)}
             placeholder="Від дати"
           />
           <DateTimePickerInput
-            mode="date"
             value={toDate}
             onChange={(nextValue) => setToDate(nextValue)}
             placeholder="До дати"
@@ -617,6 +772,7 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
                   <th className="px-3 py-2 text-left font-medium">ID</th>
                   <th className="px-3 py-2 text-left font-medium">Назва</th>
                   <th className="px-3 py-2 text-left font-medium">Клієнт</th>
+                  <th className="px-3 py-2 text-left font-medium">Послуга</th>
                   <th className="px-3 py-2 text-left font-medium">Початок</th>
                   <th className="px-3 py-2 text-left font-medium">Кінець</th>
                   <th className="px-3 py-2 text-left font-medium">Статус</th>
@@ -635,67 +791,57 @@ export function AppointmentsCrud({ initialAppointments, clients }: Props) {
                       {row.client_id ? (clientMap.get(row.client_id) ?? row.client_id) : "—"}
                     </td>
                     <td className="px-3 py-2">
+                      {row.service_id ? (serviceMap.get(row.service_id)?.name ?? row.service_id) : "—"}
+                    </td>
+                    <td className="px-3 py-2">
                       {new Date(row.starts_at).toLocaleString("uk-UA")}
                     </td>
                     <td className="px-3 py-2">
                       {new Date(row.ends_at).toLocaleString("uk-UA")}
                     </td>
                     <td className="px-3 py-2">
-                      <div className="mb-1">
-                        <span
-                          className={cn(
-                            "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
-                            statusBadgeClass(row.status),
-                          )}
-                        >
-                          {row.status}
-                        </span>
-                      </div>
-                      <select
-                        value={row.status}
-                        onChange={(e) =>
-                          void onChangeStatus(
-                            row.id,
-                            e.target.value as AppointmentStatus,
-                          )
-                        }
-                        className="h-9 rounded-lg border border-violet-700/70 bg-violet-950/40 px-2 text-sm text-violet-100"
+                      <span
+                        className={cn(
+                          "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                          statusBadgeClass(row.status),
+                        )}
                       >
-                        {statuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
+                        {statusLabels[row.status]}
+                      </span>
                     </td>
                     <td className="px-3 py-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setEditingId(row.id);
-                          setForm({
-                            title: row.title ?? "",
-                            client_id: row.client_id ?? "",
-                            starts_at: new Date(row.starts_at).toISOString().slice(0, 16),
-                            ends_at: new Date(row.ends_at).toISOString().slice(0, 16),
-                            status: row.status,
-                          });
-                          setError(null);
-                        }}
-                        disabled={pending}
-                        className="mr-2"
-                      >
-                        Редагувати
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void onDelete(row.id)}
-                        disabled={pending}
-                      >
-                        Видалити
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setIsCreateOpen(false);
+                            setEditingId(row.id);
+                            setForm({
+                              title: row.title ?? "",
+                              client_id: row.client_id ?? "",
+                              service_id: row.service_id ?? "",
+                              starts_at: toLocalDateTimeInputValue(row.starts_at),
+                              ends_at: toLocalDateTimeInputValue(row.ends_at),
+                              status: row.status,
+                            });
+                            setError(null);
+                          }}
+                          disabled={pending}
+                          className="border-amber-300/80 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 hover:text-amber-50"
+                        >
+                          Редагувати
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void onDelete(row.id)}
+                          disabled={pending}
+                          className="border-red-300/80 bg-red-500/20 text-red-100 hover:bg-red-500/35 hover:text-red-50"
+                        >
+                          Видалити
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

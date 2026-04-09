@@ -1,10 +1,9 @@
 "use client";
 
-import { CalendarDays, Clock3 } from "lucide-react";
+import { CalendarDays, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { uk } from "date-fns/locale";
 
-import { Calendar } from "@/components/ui/calendar";
+import { CalendarWithTime } from "@/components/ui/calendar-with-time";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -14,6 +13,8 @@ type Props = {
   placeholder?: string;
   className?: string;
   mode?: "date" | "datetime";
+  /** Block past calendar days only; time is free to choose on any allowed day. */
+  disablePastDays?: boolean;
 };
 
 function splitDateTime(value: string): { datePart: string; timePart: string } {
@@ -21,7 +22,9 @@ function splitDateTime(value: string): { datePart: string; timePart: string } {
     return { datePart: "", timePart: "" };
   }
   const [datePart, timePartRaw] = value.split("T");
-  const timePart = (timePartRaw ?? "").slice(0, 5);
+  const raw = (timePartRaw ?? "").trim();
+  const m = /^(\d{1,2}):(\d{2})/.exec(raw);
+  const timePart = m ? `${m[1].padStart(2, "0")}:${m[2]}` : "";
   return { datePart: datePart ?? "", timePart };
 }
 
@@ -32,31 +35,6 @@ function toDateTimeLocalValue(datePart: string, timePart: string): string {
   return `${datePart}T${timePart}`;
 }
 
-function parseDateOnly(value: string): Date | null {
-  if (!value) {
-    return null;
-  }
-  const [yearRaw, monthRaw, dayRaw] = value.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  const day = Number(dayRaw);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    return null;
-  }
-  const date = new Date(year, month - 1, day);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date;
-}
-
-function toDatePart(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 export function DateTimePickerInput({
   id,
   value,
@@ -64,6 +42,7 @@ export function DateTimePickerInput({
   placeholder = "Обери дату та час",
   className,
   mode = "datetime",
+  disablePastDays = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [datePart, setDatePart] = useState("");
@@ -121,8 +100,6 @@ export function DateTimePickerInput({
     });
   }, [value]);
 
-  const selectedDate = useMemo(() => parseDateOnly(datePart), [datePart]);
-
   return (
     <div ref={containerRef} className={cn("relative", className)}>
       <button
@@ -134,49 +111,41 @@ export function DateTimePickerInput({
         <span className={cn(!displayValue ? "text-violet-400" : undefined)}>
           {displayValue || placeholder}
         </span>
-        <CalendarDays className="h-4 w-4 shrink-0 text-violet-300" />
+        {value ? (
+          <span
+            role="button"
+            aria-label="Очистити дату"
+            onClick={(event) => {
+              event.stopPropagation();
+              setDatePart("");
+              setTimePart("");
+              onChange("");
+              setOpen(false);
+            }}
+            className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-violet-300 transition hover:bg-violet-800/60 hover:text-violet-50"
+          >
+            <X className="h-4 w-4 shrink-0" />
+          </span>
+        ) : (
+          <CalendarDays className="h-4 w-4 shrink-0 text-violet-300" />
+        )}
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-full rounded-xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-3 shadow-2xl">
+        <div className="absolute bottom-[calc(100%+0.5rem)] left-0 z-30">
           <div className="grid gap-3">
-            <Calendar
-              mode="single"
-              locale={uk}
-              selected={selectedDate ?? undefined}
-              onSelect={(nextDate) => {
-                if (!nextDate) {
-                  return;
-                }
-                const nextDatePart = toDatePart(nextDate);
-                setDatePart(nextDatePart);
-                if (mode === "date") {
-                  onChange(nextDatePart);
-                  return;
-                }
-                onChange(toDateTimeLocalValue(nextDatePart, timePart));
+            <CalendarWithTime
+              value={mode === "date" ? datePart : toDateTimeLocalValue(datePart, timePart)}
+              mode={mode}
+              disablePastDays={disablePastDays}
+              onDateSelect={mode === "date" ? () => setOpen(false) : undefined}
+              onChange={(nextValue) => {
+                const parts = splitDateTime(nextValue);
+                setDatePart(parts.datePart);
+                setTimePart(parts.timePart);
+                onChange(nextValue);
               }}
             />
-
-            {mode === "datetime" ? (
-              <label className="grid gap-1 text-xs text-violet-300">
-                Час
-                <div className="relative">
-                  <input
-                    type="time"
-                    step="60"
-                    value={timePart}
-                    onChange={(event) => {
-                      const nextTimePart = event.target.value;
-                      setTimePart(nextTimePart);
-                      onChange(toDateTimeLocalValue(datePart, nextTimePart));
-                    }}
-                    className="h-10 w-full rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm text-violet-100 outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-                  />
-                  <Clock3 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-300" />
-                </div>
-              </label>
-            ) : null}
           </div>
         </div>
       ) : null}

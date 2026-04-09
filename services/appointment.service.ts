@@ -9,6 +9,7 @@ import type {
 
 type UpdateAppointmentInput = {
   client_id?: string | null;
+  service_id?: string | null;
   title?: string | null;
   starts_at?: string;
   ends_at?: string;
@@ -54,6 +55,23 @@ export async function createAppointment(
   }
 
   const { supabase, userId } = ctx.data;
+
+  const startMs = new Date(input.starts_at).getTime();
+  const endMs = new Date(input.ends_at).getTime();
+  if (
+    !Number.isFinite(startMs) ||
+    !Number.isFinite(endMs) ||
+    endMs <= startMs
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "VALIDATION",
+        message: "Час закінчення має бути пізніше за час початку.",
+      },
+    };
+  }
+
   const overlap = await hasTimeOverlap({
     supabase,
     userId,
@@ -75,6 +93,7 @@ export async function createAppointment(
     .insert({
       user_id: userId,
       client_id: input.client_id ?? null,
+      service_id: input.service_id ?? null,
       title: input.title?.trim() || null,
       starts_at: input.starts_at,
       ends_at: input.ends_at,
@@ -184,6 +203,21 @@ export async function updateAppointment(
   const nextStartsAt = input.starts_at ?? existing?.starts_at;
   const nextEndsAt = input.ends_at ?? existing?.ends_at;
   if (nextStartsAt && nextEndsAt) {
+    const startMs = new Date(nextStartsAt).getTime();
+    const endMs = new Date(nextEndsAt).getTime();
+    if (
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      endMs <= startMs
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "VALIDATION",
+          message: "Час закінчення має бути пізніше за час початку.",
+        },
+      };
+    }
     const overlap = await hasTimeOverlap({
       supabase,
       userId,
@@ -209,6 +243,9 @@ export async function updateAppointment(
   }
   if (input.title !== undefined) {
     payload.title = input.title?.trim() || null;
+  }
+  if (input.service_id !== undefined) {
+    payload.service_id = input.service_id ?? null;
   }
   if (input.starts_at !== undefined) {
     payload.starts_at = input.starts_at;

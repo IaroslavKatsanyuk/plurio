@@ -23,6 +23,7 @@ export async function PATCH(
     mode?: "status" | "full";
     status?: AppointmentStatus;
     client_id?: string | null;
+    service_id?: string | null;
     title?: string | null;
     starts_at?: string;
     ends_at?: string;
@@ -58,6 +59,7 @@ export async function PATCH(
 
   const result = await updateAppointment(id, {
     client_id: body.client_id,
+    service_id: body.service_id,
     title: body.title,
     starts_at: body.starts_at,
     ends_at: body.ends_at,

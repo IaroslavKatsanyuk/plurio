@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { CalendarDays, LogOut, Users } from "lucide-react";
+import { BriefcaseBusiness, CalendarDays, LogOut, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { signOut } from "@/services/auth.service";
 
 type Props = {
-  active: "appointments" | "clients";
+  active: "appointments" | "clients" | "services";
   userEmail: string;
 };
 
@@ -40,6 +40,18 @@ export function DashboardNavbar({ active, userEmail }: Props) {
         >
           <CalendarDays className="h-4 w-4" />
           Записи
+        </Link>
+        <Link
+          href="/services"
+          className={cn(
+            "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition hover:bg-violet-800/60",
+            active === "services"
+              ? "bg-violet-600/40 text-white"
+              : "text-violet-100",
+          )}
+        >
+          <BriefcaseBusiness className="h-4 w-4" />
+          Послуги
         </Link>
       </nav>
 

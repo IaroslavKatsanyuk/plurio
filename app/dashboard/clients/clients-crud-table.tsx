@@ -35,6 +35,16 @@ function defaultForm(): ClientFormState {
   };
 }
 
+function toTelHref(phone: string): string {
+  const normalized = phone.replace(/[^\d+]/g, "");
+  return `tel:${normalized}`;
+}
+
+function toTelegramUrl(username: string): string {
+  const normalized = username.replace(/^@+/, "").trim();
+  return `https://t.me/${normalized}`;
+}
+
 export function ClientsCrudTable({ initialClients }: Props) {
   const [rows, setRows] = useState<ClientRow[]>(initialClients);
   const [query, setQuery] = useState("");
@@ -73,21 +83,50 @@ export function ClientsCrudTable({ initialClients }: Props) {
       }),
       columnHelper.accessor("phone", {
         header: "Телефон",
-        cell: (info) => info.getValue() ?? "—",
+        cell: (info) => {
+          const phone = info.getValue();
+          if (!phone) {
+            return "—";
+          }
+          return (
+            <a
+              href={toTelHref(phone)}
+              className="underline decoration-violet-400/70 underline-offset-2 hover:text-violet-200"
+            >
+              {phone}
+            </a>
+          );
+        },
       }),
       columnHelper.accessor("telegram_username", {
         header: "Telegram",
-        cell: (info) => info.getValue() ?? "—",
+        cell: (info) => {
+          const username = info.getValue();
+          if (!username) {
+            return "—";
+          }
+          return (
+            <a
+              href={toTelegramUrl(username)}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="underline decoration-violet-400/70 underline-offset-2 hover:text-violet-200"
+            >
+              {username}
+            </a>
+          );
+        },
       }),
       columnHelper.display({
         id: "actions",
         header: "Дії",
         cell: ({ row }) => (
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               size="default"
+              className="border-amber-300/80 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 hover:text-amber-50"
               onClick={() => {
                 setEditingId(row.original.id);
                 setEditForm({
@@ -103,6 +142,7 @@ export function ClientsCrudTable({ initialClients }: Props) {
             <Button
               type="button"
               variant="outline"
+              className="border-red-300/80 bg-red-500/20 text-red-100 hover:bg-red-500/35 hover:text-red-50"
               onClick={() => void onDelete(row.original.id)}
             >
               Видалити
@@ -231,31 +271,40 @@ export function ClientsCrudTable({ initialClients }: Props) {
         onClose={() => setIsCreateOpen(false)}
         title="Створити клієнта"
       >
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Input
-            placeholder="Ім'я"
-            value={createForm.name}
-            onChange={(e) =>
-              setCreateForm((prev) => ({ ...prev, name: e.target.value }))
-            }
-          />
-          <Input
-            placeholder="Телефон"
-            value={createForm.phone}
-            onChange={(e) =>
-              setCreateForm((prev) => ({ ...prev, phone: e.target.value }))
-            }
-          />
-          <Input
-            placeholder="Telegram username"
-            value={createForm.telegram_username}
-            onChange={(e) =>
-              setCreateForm((prev) => ({
-                ...prev,
-                telegram_username: e.target.value,
-              }))
-            }
-          />
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm text-violet-200">
+            Ім'я
+            <Input
+              placeholder="Ім'я"
+              value={createForm.name}
+              onChange={(e) =>
+                setCreateForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+            />
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Телефон
+            <Input
+              placeholder="Телефон"
+              value={createForm.phone}
+              onChange={(e) =>
+                setCreateForm((prev) => ({ ...prev, phone: e.target.value }))
+              }
+            />
+          </label>
+          <label className="grid gap-1 text-sm text-violet-200">
+            Telegram username
+            <Input
+              placeholder="Telegram username"
+              value={createForm.telegram_username}
+              onChange={(e) =>
+                setCreateForm((prev) => ({
+                  ...prev,
+                  telegram_username: e.target.value,
+                }))
+              }
+            />
+          </label>
         </div>
         <div className="mt-3">
           <Button type="button" onClick={() => void onCreate()} disabled={pending}>
@@ -329,7 +378,7 @@ export function ClientsCrudTable({ initialClients }: Props) {
           <h2 className="mb-3 text-lg font-semibold text-violet-50">
             Редагувати клієнта
           </h2>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3">
             <Input
               placeholder="Ім'я"
               value={editForm.name}

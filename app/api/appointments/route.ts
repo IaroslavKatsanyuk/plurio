@@ -30,6 +30,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     client_id?: string | null;
+    service_id?: string | null;
     title?: string | null;
     starts_at?: string;
     ends_at?: string;
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
 
   const result = await createAppointment({
     client_id: body.client_id ?? null,
+    service_id: body.service_id ?? null,
     title: body.title ?? null,
     starts_at: body.starts_at,
     ends_at: body.ends_at,
