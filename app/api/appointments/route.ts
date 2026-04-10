@@ -69,5 +69,11 @@ export async function POST(request: Request) {
     );
   }
 
-  return Response.json({ data: result.data }, { status: 201 });
+  return Response.json(
+    {
+      data: result.data.appointment,
+      meta: { telegramNotify: result.data.telegramNotify },
+    },
+    { status: 201 },
+  );
 }

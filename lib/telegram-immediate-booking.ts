@@ -4,9 +4,15 @@ import { tryCreateAdminClient } from "@/lib/supabase/admin";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
+/** Підсумок для API/UI (без секретів). */
+export type TelegramBookingNotifyMeta =
+  | { status: "sent"; message: string }
+  | { status: "skipped"; code: string; message: string }
+  | { status: "failed"; code: string; message: string };
+
 type ClientEmbed = {
   name: string | null;
-  telegram_chat_id?: number | string | null;
+  telegram_chat_id?: number | string | bigint | null;
 };
 
 type ServiceEmbed = { name: string | null };
@@ -52,18 +58,24 @@ function normalizeChatIdForTelegramApi(
 export async function runTelegramBookingNotification(
   supabase: SupabaseClient,
   appointmentId: string,
-): Promise<void> {
+): Promise<TelegramBookingNotifyMeta> {
   try {
-    await sendImmediateBookingTelegram(supabase, appointmentId);
+    return await sendImmediateBookingTelegram(supabase, appointmentId);
   } catch (err: unknown) {
     console.error("[telegram-immediate-booking] unexpected error", err);
+    return {
+      status: "failed",
+      code: "UNEXPECTED",
+      message:
+        "Внутрішня помилка при відправці в Telegram. Див. логи сервера (Vercel → Logs), не консоль браузера.",
+    };
   }
 }
 
 async function sendImmediateBookingTelegram(
   supabase: SupabaseClient,
   appointmentId: string,
-): Promise<void> {
+): Promise<TelegramBookingNotifyMeta> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   const admin = tryCreateAdminClient();
   console.info("[telegram-immediate-booking] start", {
@@ -76,7 +88,12 @@ async function sendImmediateBookingTelegram(
     console.warn(
       "[telegram-immediate-booking] skip: TELEGRAM_BOT_TOKEN is not set (add it to the Next.js / hosting env, not only Supabase secrets)",
     );
-    return;
+    return {
+      status: "skipped",
+      code: "NO_TOKEN",
+      message:
+        "Telegram: не відправлено — на сервері (Vercel) немає TELEGRAM_BOT_TOKEN для Production або не було Redeploy.",
+    };
   }
 
   // Prefer service role on the server: same DB reads/writes as local, without RLS/embed edge cases on prod.
@@ -92,11 +109,19 @@ async function sendImmediateBookingTelegram(
 
   if (error) {
     console.error("[telegram-immediate-booking] skip: appointment select failed", appointmentId, error);
-    return;
+    return {
+      status: "failed",
+      code: "APPOINTMENT_QUERY",
+      message: "Telegram: не вдалося прочитати запис з бази (див. логи сервера).",
+    };
   }
   if (!row?.client_id) {
     console.warn("[telegram-immediate-booking] skip: no client_id", appointmentId);
-    return;
+    return {
+      status: "skipped",
+      code: "NO_CLIENT",
+      message: "Telegram: у запису немає клієнта — повідомлення не надсилається.",
+    };
   }
 
   const apt = row as unknown as {
@@ -111,14 +136,22 @@ async function sendImmediateBookingTelegram(
 
   if (apt.status !== "scheduled" && apt.status !== "confirmed") {
     console.warn("[telegram-immediate-booking] skip: status", appointmentId, apt.status);
-    return;
+    return {
+      status: "skipped",
+      code: "BAD_STATUS",
+      message: "Telegram: статус запису не підходить для підтвердження.",
+    };
   }
 
   const startsAt = new Date(apt.starts_at);
   const startMs = startsAt.getTime();
   if (!Number.isFinite(startMs)) {
     console.warn("[telegram-immediate-booking] skip: invalid starts_at", appointmentId);
-    return;
+    return {
+      status: "skipped",
+      code: "INVALID_STARTS_AT",
+      message: "Telegram: некоректний час початку запису.",
+    };
   }
 
   let client = firstEmbed(apt.clients);
@@ -149,7 +182,12 @@ async function sendImmediateBookingTelegram(
       "[telegram-immediate-booking] skip: no telegram_chat_id — client must tap «Telegram link» from dashboard and open the bot (username alone is not enough for instant DMs)",
       appointmentId,
     );
-    return;
+    return {
+      status: "skipped",
+      code: "NO_CHAT_ID",
+      message:
+        "Telegram: клієнт не підключив бота — надішли «Telegram link» з таблиці клієнтів, нехай відкриє бота й натисне Start.",
+    };
   }
 
   const { data: marker } = await db
@@ -159,7 +197,11 @@ async function sendImmediateBookingTelegram(
     .maybeSingle();
 
   if (marker && (marker as { telegram_reminder_24h_sent_at?: string | null }).telegram_reminder_24h_sent_at) {
-    return;
+    return {
+      status: "skipped",
+      code: "ALREADY_SENT",
+      message: "Telegram: підтвердження для цього запису вже було відправлено раніше.",
+    };
   }
 
   const whenLabel = startsAt.toLocaleString("uk-UA", {
@@ -195,7 +237,11 @@ async function sendImmediateBookingTelegram(
   if (!tgRes.ok) {
     const detail = await tgRes.text();
     console.error("[telegram-immediate-booking] Telegram sendMessage failed", appointmentId, tgRes.status, detail);
-    return;
+    return {
+      status: "failed",
+      code: "TELEGRAM_API",
+      message: `Telegram відхилив відправку (HTTP ${tgRes.status}). Перевір токен і чи клієнт не заблокував бота.`,
+    };
   }
 
   console.info("[telegram-immediate-booking] sendMessage ok", appointmentId);
@@ -208,5 +254,12 @@ async function sendImmediateBookingTelegram(
 
   if (updError) {
     console.error("[telegram-immediate-booking] failed to mark sent", appointmentId, updError);
+    return {
+      status: "sent",
+      message:
+        "Повідомлення в Telegram, ймовірно, доставлено, але не вдалося оновити запис у базі (мітка часу). Перевір логи.",
+    };
   }
+
+  return { status: "sent", message: "Підтвердження запису надіслано в Telegram." };
 }

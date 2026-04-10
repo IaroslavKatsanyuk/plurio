@@ -1,4 +1,7 @@
-import { runTelegramBookingNotification } from "@/lib/telegram-immediate-booking";
+import {
+  runTelegramBookingNotification,
+  type TelegramBookingNotifyMeta,
+} from "@/lib/telegram-immediate-booking";
 import { getAuthenticatedContext } from "./session";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -44,13 +47,18 @@ async function hasTimeOverlap(params: {
   return (data ?? []).length > 0;
 }
 
+export type CreateAppointmentSuccess = {
+  appointment: AppointmentRow;
+  telegramNotify: TelegramBookingNotifyMeta;
+};
+
 /**
  * Створює запис (appointment) для поточного користувача.
  * client_id має належати цьому ж користувачу (перевірка на рівні БД).
  */
 export async function createAppointment(
   input: CreateAppointmentInput,
-): Promise<ServiceResult<AppointmentRow>> {
+): Promise<ServiceResult<CreateAppointmentSuccess>> {
   const ctx = await getAuthenticatedContext();
   if (!ctx.ok) {
     return ctx;
@@ -116,9 +124,9 @@ export async function createAppointment(
   }
 
   const created = data as AppointmentRow;
-  await runTelegramBookingNotification(supabase, created.id);
+  const telegramNotify = await runTelegramBookingNotification(supabase, created.id);
 
-  return { ok: true, data: created };
+  return { ok: true, data: { appointment: created, telegramNotify } };
 }
 
 /**

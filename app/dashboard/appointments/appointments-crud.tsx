@@ -26,6 +26,7 @@ import {
   formatTimeKyiv,
   mondayKyivDateKey,
 } from "@/lib/datetime-kyiv";
+import type { TelegramBookingNotifyMeta } from "@/lib/telegram-immediate-booking";
 import { cn } from "@/lib/utils";
 import { useMemo, useState } from "react";
 
@@ -198,6 +199,10 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [telegramInfo, setTelegramInfo] = useState<{
+    tone: "ok" | "warn";
+    text: string;
+  } | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [statusFilter, setStatusFilter] = useState<"all" | AppointmentStatus>("all");
@@ -304,6 +309,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
     }
     setPending(true);
     setError(null);
+    setTelegramInfo(null);
     try {
       const response = await fetch("/api/appointments", {
         method: "POST",
@@ -318,11 +324,21 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
         }),
       });
       const json = (await response.json()) as
-        | { data: AppointmentRow }
+        | {
+            data: AppointmentRow;
+            meta?: { telegramNotify: TelegramBookingNotifyMeta };
+          }
         | { error: { message: string } };
       if (!response.ok || !("data" in json)) {
         setError("error" in json ? json.error.message : "Не вдалося створити запис.");
         return;
+      }
+      const tg = json.meta?.telegramNotify;
+      if (tg) {
+        setTelegramInfo({
+          tone: tg.status === "sent" ? "ok" : "warn",
+          text: tg.message,
+        });
       }
       setRows((prev) => [json.data, ...prev]);
       setForm(defaultForm());
@@ -755,6 +771,19 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
 
         {error ? (
           <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>
+        ) : null}
+        {telegramInfo ? (
+          <p
+            className={cn(
+              "mb-3 text-sm",
+              telegramInfo.tone === "ok"
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-amber-800 dark:text-amber-300",
+            )}
+            role="status"
+          >
+            {telegramInfo.text}
+          </p>
         ) : null}
 
         {viewMode === "table" ? (
