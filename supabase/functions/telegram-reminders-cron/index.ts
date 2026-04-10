@@ -109,7 +109,8 @@ async function runImmediateBookingStage(params: {
     .in("status", ["scheduled", "confirmed"])
     .is(sentAtColumn, null)
     .not("client_id", "is", null)
-    .gt("starts_at", nowIso)
+    // Візит ще не закінчився (не відсікаємо лише через starts_at — інакше прод пропускає «зараз» і пограничні слоти).
+    .gt("ends_at", nowIso)
     .order("starts_at", { ascending: true })
     .limit(IMMEDIATE_BATCH_LIMIT);
 

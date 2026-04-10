@@ -36,6 +36,9 @@ async function sendImmediateBookingTelegram(
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) {
+    console.warn(
+      "[telegram-immediate-booking] skip: TELEGRAM_BOT_TOKEN is not set (add it to the Next.js / hosting env, not only Supabase secrets)",
+    );
     return;
   }
 
@@ -47,7 +50,12 @@ async function sendImmediateBookingTelegram(
     .eq("id", appointmentId)
     .maybeSingle();
 
-  if (error || !row?.client_id) {
+  if (error) {
+    console.error("[telegram-immediate-booking] skip: appointment select failed", appointmentId, error);
+    return;
+  }
+  if (!row?.client_id) {
+    console.warn("[telegram-immediate-booking] skip: no client_id", appointmentId);
     return;
   }
 
@@ -62,18 +70,24 @@ async function sendImmediateBookingTelegram(
   };
 
   if (apt.status !== "scheduled" && apt.status !== "confirmed") {
+    console.warn("[telegram-immediate-booking] skip: status", appointmentId, apt.status);
     return;
   }
 
   const startsAt = new Date(apt.starts_at);
   const startMs = startsAt.getTime();
-  if (!Number.isFinite(startMs) || startMs <= Date.now()) {
+  if (!Number.isFinite(startMs)) {
+    console.warn("[telegram-immediate-booking] skip: invalid starts_at", appointmentId);
     return;
   }
 
   const client = firstEmbed(apt.clients);
   const chatId = client?.telegram_chat_id;
   if (chatId == null || chatId === "") {
+    console.warn(
+      "[telegram-immediate-booking] skip: client has no telegram_chat_id (client must open bot link from dashboard)",
+      appointmentId,
+    );
     return;
   }
 
@@ -118,12 +132,18 @@ async function sendImmediateBookingTelegram(
   });
 
   if (!tgRes.ok) {
+    const detail = await tgRes.text();
+    console.error("[telegram-immediate-booking] Telegram sendMessage failed", appointmentId, tgRes.status, detail);
     return;
   }
 
   const sentAt = new Date().toISOString();
-  await supabase
+  const { error: updError } = await supabase
     .from("appointments")
     .update({ telegram_reminder_24h_sent_at: sentAt })
     .eq("id", appointmentId);
+
+  if (updError) {
+    console.error("[telegram-immediate-booking] failed to mark sent", appointmentId, updError);
+  }
 }
