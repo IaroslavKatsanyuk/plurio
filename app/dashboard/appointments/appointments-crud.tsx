@@ -17,6 +17,15 @@ import { Button } from "@/components/ui/button";
 import { DateTimePickerInput } from "@/components/ui/date-time-picker-input";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import {
+  addDaysToYmdKey,
+  dateKeyKyiv,
+  formatDateTimeKyiv,
+  formatDateTitleKyivFromYmd,
+  formatShortDayKyivFromYmd,
+  formatTimeKyiv,
+  mondayKyivDateKey,
+} from "@/lib/datetime-kyiv";
 import { cn } from "@/lib/utils";
 import { useMemo, useState } from "react";
 
@@ -60,13 +69,6 @@ function defaultForm(): CreateForm {
     ends_at: "",
     status: "scheduled",
   };
-}
-
-function toLocalDateKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 /** Local YYYY-MM-DDTHH:mm for datetime inputs (must not use UTC slice — parses as local). */
@@ -135,15 +137,9 @@ function DraggableAppointment({
     >
       <p className="font-medium">{row.title ?? "Без назви"}</p>
       <p className="text-xs text-violet-500">
-        {new Date(row.starts_at).toLocaleTimeString("uk-UA", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
+        {formatTimeKyiv(row.starts_at)}
         {" – "}
-        {new Date(row.ends_at).toLocaleTimeString("uk-UA", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
+        {formatTimeKyiv(row.ends_at)}
       </p>
       <p className="text-xs text-violet-500">{clientName ?? "Без клієнта"}</p>
       <span
@@ -263,7 +259,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
   const dayBuckets = useMemo(() => {
     const map = new Map<string, AppointmentRow[]>();
     filteredRows.forEach((row) => {
-      const key = toLocalDateKey(new Date(row.starts_at));
+      const key = dateKeyKyiv(row.starts_at);
       const list = map.get(key) ?? [];
       list.push(row);
       map.set(key, list);
@@ -281,12 +277,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
   const weekBuckets = useMemo(() => {
     const map = new Map<string, AppointmentRow[]>();
     filteredRows.forEach((row) => {
-      const date = new Date(row.starts_at);
-      const day = date.getDay() || 7;
-      const monday = new Date(date);
-      monday.setDate(date.getDate() - (day - 1));
-      monday.setHours(0, 0, 0, 0);
-      const key = toLocalDateKey(monday);
+      const key = mondayKyivDateKey(row.starts_at);
       const list = map.get(key) ?? [];
       list.push(row);
       map.set(key, list);
@@ -796,10 +787,10 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                       {row.service_id ? (serviceMap.get(row.service_id)?.name ?? row.service_id) : "—"}
                     </td>
                     <td className="px-3 py-2">
-                      {new Date(row.starts_at).toLocaleString("uk-UA")}
+                      {formatDateTimeKyiv(row.starts_at)}
                     </td>
                     <td className="px-3 py-2">
-                      {new Date(row.ends_at).toLocaleString("uk-UA")}
+                      {formatDateTimeKyiv(row.ends_at)}
                     </td>
                     <td className="px-3 py-2">
                       <span
@@ -862,7 +853,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   <DroppableDayColumn
                     key={bucket.date}
                     dayKey={bucket.date}
-                    title={new Date(`${bucket.date}T00:00:00`).toLocaleDateString("uk-UA")}
+                    title={formatDateTitleKyivFromYmd(bucket.date)}
                     rows={bucket.rows}
                     clientMap={clientMap}
                   />
@@ -877,35 +868,27 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                 <p className="text-sm text-violet-500">Немає записів за фільтром.</p>
               ) : (
                 weekBuckets.map((bucket) => {
-                  const weekStart = new Date(`${bucket.weekStart}T00:00:00`);
-                  const days = Array.from({ length: 7 }, (_, i) => {
-                    const day = new Date(weekStart);
-                    day.setDate(weekStart.getDate() + i);
-                    return day;
-                  });
+                  const days = Array.from({ length: 7 }, (_, i) =>
+                    addDaysToYmdKey(bucket.weekStart, i),
+                  );
                   return (
                     <div
                       key={bucket.weekStart}
                       className="rounded-xl border border-violet-800/70 bg-violet-950/30 p-3"
                     >
                       <h3 className="mb-2 font-medium">
-                        Тиждень від {weekStart.toLocaleDateString("uk-UA")}
+                        Тиждень від {formatDateTitleKyivFromYmd(bucket.weekStart)}
                       </h3>
                       <div className="grid gap-2 lg:grid-cols-7">
-                        {days.map((day) => {
-                          const dayKey = toLocalDateKey(day);
+                        {days.map((dayKey) => {
                           const dayRows = bucket.rows.filter(
-                            (row) => toLocalDateKey(new Date(row.starts_at)) === dayKey,
+                            (row) => dateKeyKyiv(row.starts_at) === dayKey,
                           );
                           return (
                             <DroppableDayColumn
                               key={dayKey}
                               dayKey={dayKey}
-                              title={day.toLocaleDateString("uk-UA", {
-                                weekday: "short",
-                                day: "2-digit",
-                                month: "2-digit",
-                              })}
+                              title={formatShortDayKyivFromYmd(dayKey)}
                               rows={dayRows}
                               clientMap={clientMap}
                             />

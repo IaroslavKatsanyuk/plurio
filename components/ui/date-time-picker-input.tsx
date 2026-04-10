@@ -10,6 +10,8 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
+const KYIV_TZ = "Europe/Kyiv";
+
 type Props = {
   id?: string;
   value: string;
@@ -113,6 +115,7 @@ export function DateTimePickerInput({
         return value;
       }
       return date.toLocaleDateString("uk-UA", {
+        timeZone: KYIV_TZ,
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -123,6 +126,7 @@ export function DateTimePickerInput({
       return value;
     }
     return date.toLocaleString("uk-UA", {
+      timeZone: KYIV_TZ,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
