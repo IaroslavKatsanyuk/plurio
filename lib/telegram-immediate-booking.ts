@@ -2,15 +2,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
-type AppointmentNotifyRow = {
-  id: string;
-  starts_at: string;
-  title: string | null;
-  status: string;
-  client_id: string | null;
-  clients: { name: string | null; telegram_chat_id: number | string | null } | null;
-  services: { name: string | null } | null;
+type ClientEmbed = {
+  name: string | null;
+  telegram_chat_id?: number | string | null;
 };
+
+type ServiceEmbed = { name: string | null };
+
+/** Supabase may return a single embed or an array depending on generated types. */
+function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
+  if (value == null) {
+    return null;
+  }
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
 
 /**
  * Fire-and-forget: send booking confirmation in Telegram and set telegram_reminder_24h_sent_at.
@@ -46,7 +51,16 @@ async function sendImmediateBookingTelegram(
     return;
   }
 
-  const apt = row as AppointmentNotifyRow;
+  const apt = row as unknown as {
+    id: string;
+    starts_at: string;
+    title: string | null;
+    status: string;
+    client_id: string;
+    clients: ClientEmbed | ClientEmbed[] | null;
+    services: ServiceEmbed | ServiceEmbed[] | null;
+  };
+
   if (apt.status !== "scheduled" && apt.status !== "confirmed") {
     return;
   }
@@ -57,7 +71,8 @@ async function sendImmediateBookingTelegram(
     return;
   }
 
-  const chatId = apt.clients?.telegram_chat_id;
+  const client = firstEmbed(apt.clients);
+  const chatId = client?.telegram_chat_id;
   if (chatId == null || chatId === "") {
     return;
   }
@@ -85,11 +100,12 @@ async function sendImmediateBookingTelegram(
   if (apt.title) {
     lines.push(`Назва: ${apt.title}`);
   }
-  const clientName = apt.clients?.name?.trim();
+  const clientName = client?.name?.trim();
   if (clientName) {
     lines.push(`Ім'я: ${clientName}`);
   }
-  const serviceName = apt.services?.name?.trim();
+  const service = firstEmbed(apt.services);
+  const serviceName = service?.name?.trim();
   if (serviceName) {
     lines.push(`Послуга: ${serviceName}`);
   }
