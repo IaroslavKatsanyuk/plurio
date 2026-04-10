@@ -65,6 +65,7 @@ async function hasTimeOverlap(params: {
     .from("appointments")
     .select("id")
     .eq("user_id", params.userId)
+    .in("status", ["scheduled", "confirmed"])
     .lt("starts_at", params.endsAt)
     .gt("ends_at", params.startsAt)
     .limit(1);
