@@ -7,6 +7,10 @@ const WORK_DAY_END_HOUR = 21;
 const SLOT_STEP_MINUTES = 15;
 const TWO_MONTHS_DAYS = 62;
 
+/** Reply keyboard: must match handler in handlePlainTextForClient */
+const MENU_BTN_BOOK = "Запис";
+const MENU_BTN_MY_APPOINTMENTS = "Мої записи";
+
 type TelegramChat = { id: number };
 type TelegramMessage = { message_id: number; text?: string; chat: TelegramChat };
 type TelegramCallbackQuery = {
@@ -40,6 +44,19 @@ type AppointmentRangeRow = {
 type InlineKeyboardButton = {
   text: string;
   callback_data: string;
+};
+
+type ReplyKeyboardMarkup = {
+  keyboard: Array<Array<{ text: string }>>;
+  resize_keyboard: boolean;
+  one_time_keyboard: boolean;
+};
+
+type AppointmentListRow = {
+  starts_at: string;
+  title: string | null;
+  status: string;
+  services: { name: string } | null;
 };
 
 Deno.serve(async (req) => {
@@ -88,56 +105,63 @@ Deno.serve(async (req) => {
   }
   const chatId = message.chat.id;
 
-  if (!rawText.startsWith("/start")) {
-    await sendBotMessage(botToken, chatId, "Натисни кнопку нижче, щоб продовжити.", {
-      inline_keyboard: [[{ text: "Записатися", callback_data: "book:start" }]],
-    });
-    return jsonOk();
-  }
+  if (rawText.startsWith("/start")) {
+    const token = rawText.split(/\s+/)[1];
 
-  const token = rawText.split(/\s+/)[1];
+    if (!token) {
+      const ctx = await getClientContextByChatId(supabase, chatId);
+      if (ctx) {
+        await sendBotMessage(
+          botToken,
+          chatId,
+          "Обери дію в меню нижче.",
+          clientMainMenuKeyboard(),
+        );
+      } else {
+        await sendBotMessage(
+          botToken,
+          chatId,
+          "Щоб підключити Telegram, відкрий персональне посилання від майстра.",
+        );
+      }
+      return jsonOk();
+    }
 
-  if (!token) {
+    const { data: linked, error } = await supabase
+      .from("clients")
+      .update({ telegram_chat_id: chatId, telegram_link_token: null })
+      .eq("telegram_link_token", token)
+      .select("id, name")
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      await sendBotMessage(botToken, chatId, "Тимчасова помилка. Спробуй ще раз пізніше.");
+      return jsonOk();
+    }
+
+    if (!linked) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Посилання недійсне або застаріле. Попроси майстра згенерувати нове запрошення.",
+      );
+      return jsonOk();
+    }
+
+    const clientName = (linked as { name?: string } | null)?.name?.trim();
     await sendBotMessage(
       botToken,
       chatId,
-      "Щоб підключити Telegram, відкрий персональне посилання від майстра.",
-      { inline_keyboard: [[{ text: "Записатися", callback_data: "book:start" }]] },
+      clientName
+        ? `Готово, ${clientName}. Telegram підключено. Отримаєш підтвердження запису та нагадування за ~2 год до візиту.`
+        : "Готово. Telegram підключено. Отримаєш підтвердження запису та нагадування за ~2 год до візиту.",
+      clientMainMenuKeyboard(),
     );
     return jsonOk();
   }
 
-  const { data: linked, error } = await supabase
-    .from("clients")
-    .update({ telegram_chat_id: chatId, telegram_link_token: null })
-    .eq("telegram_link_token", token)
-    .select("id, name")
-    .maybeSingle();
-
-  if (error) {
-    console.error(error);
-    await sendBotMessage(botToken, chatId, "Тимчасова помилка. Спробуй ще раз пізніше.");
-    return jsonOk();
-  }
-
-  if (!linked) {
-    await sendBotMessage(
-      botToken,
-      chatId,
-      "Посилання недійсне або застаріле. Попроси майстра згенерувати нове запрошення.",
-    );
-    return jsonOk();
-  }
-
-  const clientName = (linked as { name?: string } | null)?.name?.trim();
-  await sendBotMessage(
-    botToken,
-    chatId,
-    clientName
-      ? `Готово, ${clientName}. Telegram підключено. Отримаєш підтвердження запису та нагадування за ~2 год до візиту.`
-      : "Готово. Telegram підключено. Отримаєш підтвердження запису та нагадування за ~2 год до візиту.",
-    { inline_keyboard: [[{ text: "Записатися", callback_data: "book:start" }]] },
-  );
+  await handlePlainTextForClient({ botToken, supabase, chatId, text: rawText });
   return jsonOk();
 });
 
@@ -146,6 +170,150 @@ function jsonOk(): Response {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function clientMainMenuKeyboard(): ReplyKeyboardMarkup {
+  return {
+    keyboard: [[{ text: MENU_BTN_BOOK }, { text: MENU_BTN_MY_APPOINTMENTS }]],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+  };
+}
+
+function isBookMenuAction(text: string): boolean {
+  const t = text.trim();
+  if (t === MENU_BTN_BOOK) return true;
+  const low = t.toLowerCase();
+  return low === "/book";
+}
+
+function isMyAppointmentsMenuAction(text: string): boolean {
+  const t = text.trim();
+  if (t === MENU_BTN_MY_APPOINTMENTS) return true;
+  const low = t.toLowerCase();
+  return low === "/my" || low === "/appointments";
+}
+
+async function handlePlainTextForClient(params: {
+  botToken: string;
+  supabase: ReturnType<typeof createClient>;
+  chatId: number;
+  text: string;
+}) {
+  const { botToken, supabase, chatId, text } = params;
+  const ctx = await getClientContextByChatId(supabase, chatId);
+
+  if (isBookMenuAction(text)) {
+    if (!ctx) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Спочатку підключи Telegram через персональне посилання від майстра.",
+      );
+      return;
+    }
+    await showServicePicker({ botToken, supabase, chatId });
+    return;
+  }
+
+  if (isMyAppointmentsMenuAction(text)) {
+    if (!ctx) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Спочатку підключи Telegram через персональне посилання від майстра.",
+      );
+      return;
+    }
+    await sendUpcomingAppointmentsMessage({ botToken, supabase, chatId, clientId: ctx.id });
+    return;
+  }
+
+  if (ctx) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Обери пункт у меню внизу: «Запис» або «Мої записи».",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  await sendBotMessage(
+    botToken,
+    chatId,
+    "Щоб користуватися ботом, відкрий персональне посилання від майстра (через /start з кодом).",
+  );
+}
+
+function appointmentStatusLabelUa(status: string): string {
+  if (status === "scheduled") return "заплановано";
+  if (status === "confirmed") return "підтверджено";
+  if (status === "cancelled") return "скасовано";
+  if (status === "completed") return "завершено";
+  return status;
+}
+
+function formatKyivDateTime(iso: string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+async function sendUpcomingAppointmentsMessage(params: {
+  botToken: string;
+  supabase: ReturnType<typeof createClient>;
+  chatId: number;
+  clientId: string;
+}) {
+  const { botToken, supabase, chatId, clientId } = params;
+  const nowIso = new Date().toISOString();
+
+  const { data: rows, error } = await supabase
+    .from("appointments")
+    .select("starts_at, title, status, services(name)")
+    .eq("client_id", clientId)
+    .in("status", ["scheduled", "confirmed"])
+    .gt("ends_at", nowIso)
+    .order("starts_at", { ascending: true })
+    .limit(25);
+
+  if (error) {
+    console.error("Failed to load client appointments", error);
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Не вдалося завантажити записи. Спробуй пізніше.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const list = (rows ?? []) as AppointmentListRow[];
+  if (list.length === 0) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Активних майбутніх записів немає. Натисни «Запис», щоб обрати послугу.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const lines = list.map((row) => {
+    const svc = row.services?.name?.trim();
+    const label = svc || row.title?.trim() || "Запис";
+    const st = appointmentStatusLabelUa(row.status);
+    return `• ${formatKyivDateTime(row.starts_at)} — ${label} (${st})`;
+  });
+
+  const text = ["Твої майбутні записи:", "", ...lines].join("\n");
+  await sendBotMessage(botToken, chatId, text, clientMainMenuKeyboard());
 }
 
 async function handleCallbackQuery(params: {
@@ -164,6 +332,20 @@ async function handleCallbackQuery(params: {
 
   if (data === "book:start") {
     await showServicePicker({ botToken, supabase, chatId });
+    return;
+  }
+
+  if (data === "appt:list") {
+    const ctx = await getClientContextByChatId(supabase, chatId);
+    if (!ctx) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Підключення Telegram не знайдено. Відкрий персональне посилання від майстра ще раз.",
+      );
+      return;
+    }
+    await sendUpcomingAppointmentsMessage({ botToken, supabase, chatId, clientId: ctx.id });
     return;
   }
 
@@ -220,11 +402,16 @@ async function showServicePicker(params: {
       },
     ]);
 
+  const inlineKeyboard: InlineKeyboardButton[][] = [
+    ...keyboard,
+    [{ text: "Мої записи", callback_data: "appt:list" }],
+  ];
+
   await sendBotMessage(
     botToken,
     chatId,
     "Обери послугу, і я покажу доступні дати на найближчі 2 місяці:",
-    { inline_keyboard: keyboard },
+    { inline_keyboard: inlineKeyboard },
   );
 }
 
@@ -293,7 +480,14 @@ async function sendAvailableDates(params: {
       botToken,
       chatId,
       `На жаль, на найближчі 2 місяці для "${(service as ServiceRow).name}" вільних дат немає.`,
-      { inline_keyboard: [[{ text: "Обрати іншу послугу", callback_data: "book:start" }]] },
+      {
+        inline_keyboard: [
+          [
+            { text: "Обрати іншу послугу", callback_data: "book:start" },
+            { text: "Мої записи", callback_data: "appt:list" },
+          ],
+        ],
+      },
     );
     return;
   }
@@ -306,7 +500,12 @@ async function sendAvailableDates(params: {
   ].join("\n");
 
   await sendBotMessage(botToken, chatId, text, {
-    inline_keyboard: [[{ text: "Інша послуга", callback_data: "book:start" }]],
+    inline_keyboard: [
+      [
+        { text: "Інша послуга", callback_data: "book:start" },
+        { text: "Мої записи", callback_data: "appt:list" },
+      ],
+    ],
   });
 }
 
@@ -376,15 +575,15 @@ async function sendBotMessage(
   botToken: string,
   chatId: number,
   text: string,
-  replyMarkup?: { inline_keyboard: InlineKeyboardButton[][] },
+  replyMarkup?: ReplyKeyboardMarkup | { inline_keyboard: InlineKeyboardButton[][] },
 ) {
+  const payload: Record<string, unknown> = { chat_id: chatId, text };
+  if (replyMarkup) {
+    payload.reply_markup = replyMarkup;
+  }
   await fetch(`${TELEGRAM_API}/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_markup: replyMarkup,
-    }),
+    body: JSON.stringify(payload),
   });
 }
