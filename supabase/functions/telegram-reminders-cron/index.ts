@@ -26,7 +26,10 @@ type ClientRow = {
 Deno.serve(async (req) => {
   const cronSecret = Deno.env.get("CRON_SECRET");
   const auth = req.headers.get("Authorization");
-  if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
+  const headerSecret = req.headers.get("X-Cron-Secret");
+  const authOk = auth === `Bearer ${cronSecret}`;
+  const headerOk = headerSecret === cronSecret;
+  if (!cronSecret || (!authOk && !headerOk)) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -70,8 +73,16 @@ Deno.serve(async (req) => {
       data: {
         sent24h: stage24h.sent,
         checked24h: stage24h.checked,
+        skippedNoChat24h: stage24h.skippedNoChat,
+        sendFailed24h: stage24h.sendFailed,
+        markFailed24h: stage24h.markFailed,
+        window24h: stage24h.window,
         sent2h: stage2h.sent,
         checked2h: stage2h.checked,
+        skippedNoChat2h: stage2h.skippedNoChat,
+        sendFailed2h: stage2h.sendFailed,
+        markFailed2h: stage2h.markFailed,
+        window2h: stage2h.window,
       },
     }),
     { headers: { "Content-Type": "application/json" } },
@@ -90,7 +101,15 @@ async function runReminderStage(params: {
   sentAtColumn: ReminderSentColumn;
   stageLabel: ReminderStage;
 }): Promise<
-  | { ok: true; sent: number; checked: number }
+  | {
+      ok: true;
+      sent: number;
+      checked: number;
+      skippedNoChat: number;
+      sendFailed: number;
+      markFailed: number;
+      window: { fromIso: string; toIso: string };
+    }
   | { ok: false; response: Response }
 > {
   const now = Date.now();
@@ -123,7 +142,20 @@ async function runReminderStage(params: {
 
   const list = (appointments ?? []) as AppointmentRow[];
   if (list.length === 0) {
-    return { ok: true, sent: 0, checked: 0 };
+    console.info("[telegram-reminders-cron] no appointments in window", {
+      stage: params.stageLabel,
+      fromIso,
+      toIso,
+    });
+    return {
+      ok: true,
+      sent: 0,
+      checked: 0,
+      skippedNoChat: 0,
+      sendFailed: 0,
+      markFailed: 0,
+      window: { fromIso, toIso },
+    };
   }
 
   const clientIds = [...new Set(list.map((a) => a.client_id).filter(Boolean))] as string[];
@@ -149,12 +181,16 @@ async function runReminderStage(params: {
   );
 
   let sent = 0;
+  let skippedNoChat = 0;
+  let sendFailed = 0;
+  let markFailed = 0;
   for (const row of list) {
     if (!row.client_id) {
       continue;
     }
     const client = clientById.get(row.client_id);
     if (!client?.telegram_chat_id) {
+      skippedNoChat += 1;
       continue;
     }
 
@@ -197,6 +233,7 @@ async function runReminderStage(params: {
 
     if (!tgRes.ok) {
       console.error("Telegram send failed", row.id, await tgRes.text());
+      sendFailed += 1;
       continue;
     }
 
@@ -212,8 +249,29 @@ async function runReminderStage(params: {
       sent += 1;
     } else {
       console.error("Failed to mark reminder sent", row.id, updError);
+      markFailed += 1;
     }
   }
 
-  return { ok: true, sent, checked: list.length };
+  const summary = {
+    stage: params.stageLabel,
+    fromIso,
+    toIso,
+    checked: list.length,
+    sent,
+    skippedNoChat,
+    sendFailed,
+    markFailed,
+  };
+  console.info("[telegram-reminders-cron] stage summary", summary);
+
+  return {
+    ok: true,
+    sent,
+    checked: list.length,
+    skippedNoChat,
+    sendFailed,
+    markFailed,
+    window: { fromIso, toIso },
+  };
 }
