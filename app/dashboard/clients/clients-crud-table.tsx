@@ -56,6 +56,10 @@ export function ClientsCrudTable({ initialClients }: Props) {
   const [createForm, setCreateForm] = useState<ClientFormState>(defaultForm());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<ClientFormState>(defaultForm());
+  const [telegramLink, setTelegramLink] = useState<{
+    clientName: string;
+    deepLink: string;
+  } | null>(null);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -102,18 +106,30 @@ export function ClientsCrudTable({ initialClients }: Props) {
         header: "Telegram",
         cell: (info) => {
           const username = info.getValue();
+          const linked = info.row.original.telegram_chat_id != null;
           if (!username) {
             return "—";
           }
           return (
-            <a
-              href={toTelegramUrl(username)}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="underline decoration-violet-400/70 underline-offset-2 hover:text-violet-200"
-            >
-              {username}
-            </a>
+            <div className="flex flex-col gap-1">
+              <a
+                href={toTelegramUrl(username)}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="underline decoration-violet-400/70 underline-offset-2 hover:text-violet-200"
+              >
+                {username}
+              </a>
+              <span
+                className={
+                  linked
+                    ? "inline-block w-fit rounded-full border border-emerald-400/50 bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-200"
+                    : "inline-block w-fit rounded-full border border-zinc-400/40 bg-zinc-500/20 px-2 py-0.5 text-[11px] text-zinc-200"
+                }
+              >
+                {linked ? "Підключено" : "Не підключено"}
+              </span>
+            </div>
           );
         },
       }),
@@ -138,6 +154,15 @@ export function ClientsCrudTable({ initialClients }: Props) {
               }}
             >
               Редагувати
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-violet-400/80 bg-violet-500/20 text-violet-100 hover:bg-violet-500/35 hover:text-violet-50"
+              onClick={() => void onGenerateTelegramLink(row.original)}
+              disabled={pending}
+            >
+              Telegram link
             </Button>
             <Button
               type="button"
@@ -246,6 +271,33 @@ export function ClientsCrudTable({ initialClients }: Props) {
       if (editingId === id) {
         setEditingId(null);
       }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function onGenerateTelegramLink(client: ClientRow) {
+    if (!client.telegram_username?.trim()) {
+      setError("Спочатку вкажи Telegram username клієнта.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/clients/${client.id}/telegram-link`, {
+        method: "POST",
+      });
+      const json = (await response.json()) as
+        | { data: { deepLink: string } }
+        | { error: { message: string } };
+      if (!response.ok || !("data" in json)) {
+        setError("error" in json ? json.error.message : "Не вдалося створити Telegram link.");
+        return;
+      }
+      setTelegramLink({
+        clientName: client.name,
+        deepLink: json.data.deepLink,
+      });
     } finally {
       setPending(false);
     }
@@ -417,6 +469,25 @@ export function ClientsCrudTable({ initialClients }: Props) {
               Скасувати
             </Button>
           </div>
+        </section>
+      ) : null}
+
+      {telegramLink ? (
+        <section className="rounded-2xl border border-violet-700/60 bg-violet-950/40 p-4 text-violet-50">
+          <h3 className="mb-2 text-sm font-semibold">
+            Telegram-посилання для {telegramLink.clientName}
+          </h3>
+          <p className="mb-2 text-xs text-violet-200">
+            Надішли клієнту це посилання. Після натискання Start бот зможе надсилати нагадування.
+          </p>
+          <a
+            href={telegramLink.deepLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-sm text-violet-200 underline hover:text-white"
+          >
+            {telegramLink.deepLink}
+          </a>
         </section>
       ) : null}
     </div>

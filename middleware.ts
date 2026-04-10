@@ -35,6 +35,10 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/appointments/") ||
     pathname === "/clients" ||
     pathname.startsWith("/clients/") ||
+    pathname === "/services" ||
+    pathname.startsWith("/services/") ||
+    pathname === "/settings" ||
+    pathname.startsWith("/settings/") ||
     pathname.startsWith("/dashboard");
 
   if (isProtectedPath && !user) {

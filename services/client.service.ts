@@ -1,4 +1,5 @@
 import { getAuthenticatedContext } from "./session";
+import { randomBytes } from "node:crypto";
 import type {
   ClientRow,
   CreateClientInput,
@@ -154,4 +155,52 @@ export async function deleteClient(id: string): Promise<ServiceResult<{ id: stri
   }
 
   return { ok: true, data: { id } };
+}
+
+const TELEGRAM_LINK_TOKEN_BYTES = 24;
+
+/**
+ * Генерує одноразовий токен для deep link конкретного клієнта.
+ * Клієнт має натиснути Start у боті, щоб зберігся chat_id.
+ */
+export async function issueClientTelegramLinkToken(
+  clientId: string,
+): Promise<ServiceResult<{ token: string }>> {
+  const ctx = await getAuthenticatedContext();
+  if (!ctx.ok) {
+    return ctx;
+  }
+
+  const { supabase, userId } = ctx.data;
+  const token = randomBytes(TELEGRAM_LINK_TOKEN_BYTES).toString("hex");
+
+  const { data, error } = await supabase
+    .from("clients")
+    .update({ telegram_link_token: token })
+    .eq("id", clientId)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false,
+      error: {
+        code: "CLIENT_UPDATE_FAILED",
+        message: "Не вдалося згенерувати посилання для Telegram.",
+      },
+    };
+  }
+
+  if (!data) {
+    return {
+      ok: false,
+      error: {
+        code: "CLIENT_NOT_FOUND",
+        message: "Клієнта не знайдено.",
+      },
+    };
+  }
+
+  return { ok: true, data: { token } };
 }

@@ -397,6 +397,14 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # [experimental.pgdelta]
 # When enabled, pg-delta becomes the active engine for supported schema flows.
 # enabled = false
+
+# Telegram: webhook викликається з API Telegram без JWT Supabase.
+[functions.telegram-webhook]
+verify_jwt = false
+
+# Виклик лише з cron / секретом Authorization: Bearer CRON_SECRET.
+[functions.telegram-reminders-cron]
+verify_jwt = false
 # Directory under `supabase/` where declarative files are written.
 # declarative_schema_path = "./declarative"
 # JSON string passed through to pg-delta SQL formatting.

@@ -45,7 +45,7 @@ export function RegisterForm() {
       className="flex w-full max-w-sm flex-col gap-4"
     >
       <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-violet-700 dark:text-violet-300">
+        <label htmlFor="email" className="text-sm font-medium text-violet-300">
           Email
         </label>
         <Input
@@ -59,7 +59,7 @@ export function RegisterForm() {
       <div className="flex flex-col gap-1">
         <label
           htmlFor="password"
-          className="text-sm font-medium text-violet-700 dark:text-violet-300"
+          className="text-sm font-medium text-violet-300"
         >
           Пароль
         </label>
@@ -75,7 +75,7 @@ export function RegisterForm() {
       <div className="flex flex-col gap-1">
         <label
           htmlFor="confirm"
-          className="text-sm font-medium text-violet-700 dark:text-violet-300"
+          className="text-sm font-medium text-violet-300"
         >
           Підтвердження пароля
         </label>
@@ -94,7 +94,7 @@ export function RegisterForm() {
         </p>
       ) : null}
       {info ? (
-        <p className="text-sm text-violet-700 dark:text-violet-300" role="status">
+        <p className="text-sm text-violet-300" role="status">
           {info}
         </p>
       ) : null}
@@ -104,9 +104,9 @@ export function RegisterForm() {
       >
         {pending ? "Реєстрація…" : "Створити акаунт"}
       </Button>
-      <p className="text-center text-sm text-violet-600 dark:text-violet-400">
+      <p className="text-center text-sm text-violet-300">
         Вже є акаунт?{" "}
-        <Link href="/login" className="font-medium text-violet-900 underline dark:text-violet-100">
+        <Link href="/login" className="font-medium text-violet-100 underline">
           Увійти
         </Link>
       </p>
