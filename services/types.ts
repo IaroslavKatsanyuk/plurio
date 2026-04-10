@@ -62,6 +62,7 @@ export type AppointmentRow = {
   status: AppointmentStatus;
   notes: string | null;
   telegram_reminder_sent_at: string | null;
+  /** Перше повідомлення в Telegram про запис (незабаром після бронювання); ім'я колонки історичне. */
   telegram_reminder_24h_sent_at: string | null;
   telegram_reminder_2h_sent_at: string | null;
   created_at: string;

@@ -1,10 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-/** Wider window to avoid misses when cron cadence drifts. */
+/** Wider window to avoid misses when cron cadence drifts (2h stage only). */
 const WINDOW_HALF_WIDTH_MIN = 40;
-const REMINDER_24H_MIN = 24 * 60;
 const REMINDER_2H_MIN = 2 * 60;
+/** Max rows per cron run for immediate booking messages (avoid huge bursts). */
+const IMMEDIATE_BATCH_LIMIT = 100;
 
 type AppointmentRow = {
   id: string;
@@ -46,15 +47,9 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  const stage24h = await runReminderStage({
-    supabase,
-    botToken,
-    leadMinutes: REMINDER_24H_MIN,
-    sentAtColumn: "telegram_reminder_24h_sent_at",
-    stageLabel: "24h",
-  });
-  if (!stage24h.ok) {
-    return stage24h.response;
+  const stageImmediate = await runImmediateBookingStage({ supabase, botToken });
+  if (!stageImmediate.ok) {
+    return stageImmediate.response;
   }
 
   const stage2h = await runReminderStage({
@@ -71,12 +66,11 @@ Deno.serve(async (req) => {
   return new Response(
     JSON.stringify({
       data: {
-        sent24h: stage24h.sent,
-        checked24h: stage24h.checked,
-        skippedNoChat24h: stage24h.skippedNoChat,
-        sendFailed24h: stage24h.sendFailed,
-        markFailed24h: stage24h.markFailed,
-        window24h: stage24h.window,
+        sentImmediate: stageImmediate.sent,
+        checkedImmediate: stageImmediate.checked,
+        skippedNoChatImmediate: stageImmediate.skippedNoChat,
+        sendFailedImmediate: stageImmediate.sendFailed,
+        markFailedImmediate: stageImmediate.markFailed,
         sent2h: stage2h.sent,
         checked2h: stage2h.checked,
         skippedNoChat2h: stage2h.skippedNoChat,
@@ -89,10 +83,162 @@ Deno.serve(async (req) => {
   );
 });
 
-type ReminderStage = "24h" | "2h";
-type ReminderSentColumn =
-  | "telegram_reminder_24h_sent_at"
-  | "telegram_reminder_2h_sent_at";
+type ReminderStage = "2h";
+type ReminderSentColumn = "telegram_reminder_2h_sent_at";
+
+async function runImmediateBookingStage(params: {
+  supabase: ReturnType<typeof createClient>;
+  botToken: string;
+}): Promise<
+  | {
+      ok: true;
+      sent: number;
+      checked: number;
+      skippedNoChat: number;
+      sendFailed: number;
+      markFailed: number;
+    }
+  | { ok: false; response: Response }
+> {
+  const nowIso = new Date().toISOString();
+  const sentAtColumn = "telegram_reminder_24h_sent_at" as const;
+
+  const { data: appointments, error: aptError } = await params.supabase
+    .from("appointments")
+    .select("id, user_id, client_id, starts_at, ends_at, title, clients(name), services(name)")
+    .in("status", ["scheduled", "confirmed"])
+    .is(sentAtColumn, null)
+    .not("client_id", "is", null)
+    .gt("starts_at", nowIso)
+    .order("starts_at", { ascending: true })
+    .limit(IMMEDIATE_BATCH_LIMIT);
+
+  if (aptError) {
+    console.error(aptError);
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: "appointments_query_immediate" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  const list = (appointments ?? []) as AppointmentRow[];
+  if (list.length === 0) {
+    console.info("[telegram-reminders-cron] no immediate booking notifications pending");
+    return {
+      ok: true,
+      sent: 0,
+      checked: 0,
+      skippedNoChat: 0,
+      sendFailed: 0,
+      markFailed: 0,
+    };
+  }
+
+  const clientIds = [...new Set(list.map((a) => a.client_id).filter(Boolean))] as string[];
+  const { data: clients, error: clientError } = await params.supabase
+    .from("clients")
+    .select("id, telegram_chat_id, telegram_username")
+    .in("id", clientIds)
+    .not("telegram_chat_id", "is", null);
+
+  if (clientError) {
+    console.error(clientError);
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: "clients_query_immediate" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }),
+    };
+  }
+
+  const clientById = new Map(
+    (clients ?? []).map((c) => [(c as ClientRow).id, c as ClientRow]),
+  );
+
+  let sent = 0;
+  let skippedNoChat = 0;
+  let sendFailed = 0;
+  let markFailed = 0;
+
+  for (const row of list) {
+    if (!row.client_id) continue;
+    const client = clientById.get(row.client_id);
+    if (!client?.telegram_chat_id) {
+      skippedNoChat += 1;
+      continue;
+    }
+
+    const clientName = row.clients?.name ?? null;
+    const serviceName = row.services?.name ?? null;
+    const startsAt = new Date(row.starts_at);
+    const whenLabel = startsAt.toLocaleString("uk-UA", {
+      timeZone: "Europe/Kyiv",
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const lines = [
+      "Plurio: запис підтверджено.",
+      `Час: ${whenLabel}`,
+    ];
+    if (row.title) lines.push(`Назва: ${row.title}`);
+    if (clientName) lines.push(`Ім'я: ${clientName}`);
+    if (serviceName) lines.push(`Послуга: ${serviceName}`);
+    const text = lines.join("\n");
+
+    const tgRes = await fetch(`https://api.telegram.org/bot${params.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: client.telegram_chat_id,
+        text,
+      }),
+    });
+
+    if (!tgRes.ok) {
+      console.error("Telegram send failed (immediate)", row.id, await tgRes.text());
+      sendFailed += 1;
+      continue;
+    }
+
+    const sentAt = new Date().toISOString();
+    const { error: updError } = await params.supabase
+      .from("appointments")
+      .update({ [sentAtColumn]: sentAt })
+      .eq("id", row.id);
+
+    if (!updError) {
+      sent += 1;
+    } else {
+      console.error("Failed to mark immediate sent", row.id, updError);
+      markFailed += 1;
+    }
+  }
+
+  console.info("[telegram-reminders-cron] immediate stage summary", {
+    checked: list.length,
+    sent,
+    skippedNoChat,
+    sendFailed,
+    markFailed,
+  });
+
+  return {
+    ok: true,
+    sent,
+    checked: list.length,
+    skippedNoChat,
+    sendFailed,
+    markFailed,
+  };
+}
 
 async function runReminderStage(params: {
   supabase: ReturnType<typeof createClient>;
@@ -206,10 +352,7 @@ async function runReminderStage(params: {
       minute: "2-digit",
     });
 
-    const leadText =
-      params.stageLabel === "24h"
-        ? "Нагадування від Plurio: ваш запис завтра."
-        : "Нагадування від Plurio: ваш запис через ~2 години.";
+    const leadText = "Нагадування від Plurio: ваш запис через ~2 години.";
     const lines = [leadText, `Час: ${whenLabel}`];
     if (row.title) {
       lines.push(`Назва: ${row.title}`);
