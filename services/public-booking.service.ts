@@ -1,4 +1,4 @@
-import { scheduleImmediateBookingTelegram } from "@/lib/telegram-immediate-booking";
+import { runTelegramBookingNotification } from "@/lib/telegram-immediate-booking";
 import { tryCreateAdminClient } from "@/lib/supabase/admin";
 
 import type { ServiceResult } from "./types";
@@ -530,7 +530,7 @@ export async function createPublicBooking(
   }
 
   const appointmentId = appointmentRow.id as string;
-  scheduleImmediateBookingTelegram(admin, appointmentId);
+  await runTelegramBookingNotification(admin, appointmentId);
 
   return {
     ok: true,

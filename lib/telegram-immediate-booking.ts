@@ -18,16 +18,21 @@ function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
 }
 
 /**
- * Fire-and-forget: send booking confirmation in Telegram and set telegram_reminder_24h_sent_at.
+ * Sends booking confirmation in Telegram and sets telegram_reminder_24h_sent_at.
  * Cron skips rows that already have this timestamp.
+ *
+ * Must be awaited from API handlers: on serverless (e.g. Vercel) fire-and-forget work
+ * is often killed right after the HTTP response, so "void ..." fails in prod while dev works.
  */
-export function scheduleImmediateBookingTelegram(
+export async function runTelegramBookingNotification(
   supabase: SupabaseClient,
   appointmentId: string,
-): void {
-  void sendImmediateBookingTelegram(supabase, appointmentId).catch((err: unknown) => {
-    console.error("[telegram-immediate-booking]", err);
-  });
+): Promise<void> {
+  try {
+    await sendImmediateBookingTelegram(supabase, appointmentId);
+  } catch (err: unknown) {
+    console.error("[telegram-immediate-booking] unexpected error", err);
+  }
 }
 
 async function sendImmediateBookingTelegram(

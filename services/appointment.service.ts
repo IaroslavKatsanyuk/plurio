@@ -1,4 +1,4 @@
-import { scheduleImmediateBookingTelegram } from "@/lib/telegram-immediate-booking";
+import { runTelegramBookingNotification } from "@/lib/telegram-immediate-booking";
 import { getAuthenticatedContext } from "./session";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -115,7 +115,7 @@ export async function createAppointment(
   }
 
   const created = data as AppointmentRow;
-  scheduleImmediateBookingTelegram(supabase, created.id);
+  await runTelegramBookingNotification(supabase, created.id);
 
   return { ok: true, data: created };
 }
