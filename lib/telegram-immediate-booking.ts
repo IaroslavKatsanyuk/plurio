@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { tryCreateAdminClient } from "@/lib/supabase/admin";
+
 const TELEGRAM_API = "https://api.telegram.org";
 
 type ClientEmbed = {
@@ -47,7 +49,11 @@ async function sendImmediateBookingTelegram(
     return;
   }
 
-  const { data: row, error } = await supabase
+  // Prefer service role on the server: same DB reads/writes as local, without RLS/embed edge cases on prod.
+  const admin = tryCreateAdminClient();
+  const db = admin ?? supabase;
+
+  const { data: row, error } = await db
     .from("appointments")
     .select(
       "id, starts_at, title, status, client_id, clients(name, telegram_chat_id), services(name)",
@@ -91,7 +97,7 @@ async function sendImmediateBookingTelegram(
     (client?.telegram_chat_id == null || client?.telegram_chat_id === "") &&
     apt.client_id
   ) {
-    const { data: cRow, error: clientErr } = await supabase
+    const { data: cRow, error: clientErr } = await db
       .from("clients")
       .select("name, telegram_chat_id")
       .eq("id", apt.client_id)
@@ -117,7 +123,7 @@ async function sendImmediateBookingTelegram(
     return;
   }
 
-  const { data: marker } = await supabase
+  const { data: marker } = await db
     .from("appointments")
     .select("telegram_reminder_24h_sent_at")
     .eq("id", appointmentId)
@@ -164,7 +170,7 @@ async function sendImmediateBookingTelegram(
   }
 
   const sentAt = new Date().toISOString();
-  const { error: updError } = await supabase
+  const { error: updError } = await db
     .from("appointments")
     .update({ telegram_reminder_24h_sent_at: sentAt })
     .eq("id", appointmentId);
