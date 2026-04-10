@@ -1,8 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-/** Lead time ~1 h; window width for cron that runs every ~10 min. */
-const WINDOW_HALF_WIDTH_MIN = 15;
+/** Wider window to avoid misses when cron cadence drifts. */
+const WINDOW_HALF_WIDTH_MIN = 40;
 const REMINDER_24H_MIN = 24 * 60;
 const REMINDER_2H_MIN = 2 * 60;
 
