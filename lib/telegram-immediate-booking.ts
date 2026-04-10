@@ -20,6 +20,29 @@ function firstEmbed<T>(value: T | T[] | null | undefined): T | null {
 }
 
 /**
+ * DB column is bigint; runtime value may be number, string, or BigInt.
+ * JSON.stringify throws on BigInt — Telegram API accepts string or number chat_id.
+ */
+function normalizeChatIdForTelegramApi(
+  raw: string | number | bigint | null | undefined,
+): string | number | null {
+  if (raw == null || raw === "") {
+    return null;
+  }
+  if (typeof raw === "bigint") {
+    return raw.toString();
+  }
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) && raw !== 0 ? raw : null;
+  }
+  const s = String(raw).trim();
+  if (!s || s === "0") {
+    return null;
+  }
+  return /^\d+$/.test(s) ? (s.length > 12 ? s : Number(s)) : s;
+}
+
+/**
  * Sends booking confirmation in Telegram and sets telegram_reminder_24h_sent_at.
  * Cron skips rows that already have this timestamp.
  *
@@ -42,6 +65,13 @@ async function sendImmediateBookingTelegram(
   appointmentId: string,
 ): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const admin = tryCreateAdminClient();
+  console.info("[telegram-immediate-booking] start", {
+    appointmentId,
+    tokenConfigured: Boolean(token),
+    usingServiceRole: Boolean(admin),
+  });
+
   if (!token) {
     console.warn(
       "[telegram-immediate-booking] skip: TELEGRAM_BOT_TOKEN is not set (add it to the Next.js / hosting env, not only Supabase secrets)",
@@ -50,7 +80,6 @@ async function sendImmediateBookingTelegram(
   }
 
   // Prefer service role on the server: same DB reads/writes as local, without RLS/embed edge cases on prod.
-  const admin = tryCreateAdminClient();
   const db = admin ?? supabase;
 
   const { data: row, error } = await db
@@ -114,8 +143,8 @@ async function sendImmediateBookingTelegram(
     }
   }
 
-  const chatId = client?.telegram_chat_id;
-  if (chatId == null || chatId === "") {
+  const chatId = normalizeChatIdForTelegramApi(client?.telegram_chat_id);
+  if (chatId == null) {
     console.warn(
       "[telegram-immediate-booking] skip: no telegram_chat_id — client must tap «Telegram link» from dashboard and open the bot (username alone is not enough for instant DMs)",
       appointmentId,
@@ -168,6 +197,8 @@ async function sendImmediateBookingTelegram(
     console.error("[telegram-immediate-booking] Telegram sendMessage failed", appointmentId, tgRes.status, detail);
     return;
   }
+
+  console.info("[telegram-immediate-booking] sendMessage ok", appointmentId);
 
   const sentAt = new Date().toISOString();
   const { error: updError } = await db
