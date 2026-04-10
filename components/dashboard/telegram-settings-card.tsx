@@ -11,6 +11,9 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
   const [deepLink, setDeepLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [diagClientId, setDiagClientId] = useState("");
+  const [diagJson, setDiagJson] = useState<string | null>(null);
+  const [diagPending, setDiagPending] = useState(false);
 
   async function generateLink() {
     setPending(true);
@@ -32,6 +35,23 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
       setError("Мережова помилка. Спробуй ще раз.");
     } finally {
       setPending(false);
+    }
+  }
+
+  async function runNotifyDiagnostic() {
+    setDiagPending(true);
+    setDiagJson(null);
+    try {
+      const q = diagClientId.trim()
+        ? `?client_id=${encodeURIComponent(diagClientId.trim())}`
+        : "";
+      const res = await fetch(`/api/settings/telegram-notify-debug${q}`);
+      const json: unknown = await res.json();
+      setDiagJson(JSON.stringify(json, null, 2));
+    } catch {
+      setDiagJson(JSON.stringify({ error: "Мережева помилка" }, null, 2));
+    } finally {
+      setDiagPending(false);
     }
   }
 
@@ -77,6 +97,33 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
           </a>
         </div>
       ) : null}
+
+      <div className="mt-6 border-t border-violet-700/40 pt-4">
+        <p className="mb-2 text-sm font-medium text-violet-100">Чому не прийшло повідомлення клієнту?</p>
+        <p className="mb-3 text-xs text-violet-300">
+          Опційно вкажи UUID клієнта з таблиці клієнтів — перевіримо лише твої дані, без секретів.
+        </p>
+        <input
+          type="text"
+          value={diagClientId}
+          onChange={(e) => setDiagClientId(e.target.value)}
+          placeholder="client_id (опційно)"
+          className="mb-2 w-full max-w-md rounded-md border border-violet-600/50 bg-violet-950/80 px-3 py-2 text-sm text-violet-50 placeholder:text-violet-500"
+        />
+        <button
+          type="button"
+          onClick={() => void runNotifyDiagnostic()}
+          disabled={diagPending}
+          className="rounded-lg border border-amber-600/60 bg-amber-900/30 px-4 py-2 text-sm font-medium text-amber-50 transition hover:bg-amber-800/40 disabled:opacity-60"
+        >
+          {diagPending ? "Перевірка…" : "Запустити діагностику"}
+        </button>
+        {diagJson ? (
+          <pre className="mt-3 max-h-64 overflow-auto rounded-lg border border-violet-700/50 bg-zinc-950/80 p-3 text-left text-xs text-violet-100">
+            {diagJson}
+          </pre>
+        ) : null}
+      </div>
     </section>
   );
 }
