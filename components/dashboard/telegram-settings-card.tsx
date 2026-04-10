@@ -42,8 +42,9 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
         <h2 className="text-lg font-semibold">Telegram-нагадування</h2>
       </div>
       <p className="mb-4 text-sm text-violet-200">
-        Підключи бота клієнта: одразу після створення запису (якщо в клієнта є Telegram) прийде підтвердження; ще
-        раз нагадаємо приблизно за 2 години до візиту. Для другого етапу потрібен cron у Supabase.
+        Миттєве підтвердження в Telegram надсилається лише клієнтам, які відкрили персональне посилання («Telegram
+        link» у рядку клієнта) — у таблиці має бути статус «Підключено». Лише нік у полі недостатньо. Нагадування
+        ~за 2 год до візиту потребує cron у Supabase.
       </p>
       {telegramLinked ? (
         <p className="text-sm font-medium text-emerald-300">Бота підключено.</p>

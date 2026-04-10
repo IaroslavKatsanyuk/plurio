@@ -86,11 +86,32 @@ async function sendImmediateBookingTelegram(
     return;
   }
 
-  const client = firstEmbed(apt.clients);
+  let client = firstEmbed(apt.clients);
+  if (
+    (client?.telegram_chat_id == null || client?.telegram_chat_id === "") &&
+    apt.client_id
+  ) {
+    const { data: cRow, error: clientErr } = await supabase
+      .from("clients")
+      .select("name, telegram_chat_id")
+      .eq("id", apt.client_id)
+      .maybeSingle();
+    if (clientErr) {
+      console.error(
+        "[telegram-immediate-booking] client row select failed (fallback)",
+        appointmentId,
+        clientErr,
+      );
+    } else if (cRow) {
+      const cr = cRow as { name: string | null; telegram_chat_id: number | string | null };
+      client = { name: cr.name, telegram_chat_id: cr.telegram_chat_id };
+    }
+  }
+
   const chatId = client?.telegram_chat_id;
   if (chatId == null || chatId === "") {
     console.warn(
-      "[telegram-immediate-booking] skip: client has no telegram_chat_id (client must open bot link from dashboard)",
+      "[telegram-immediate-booking] skip: no telegram_chat_id — client must tap «Telegram link» from dashboard and open the bot (username alone is not enough for instant DMs)",
       appointmentId,
     );
     return;
