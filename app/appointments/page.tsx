@@ -1,3 +1,4 @@
+import { InboxClearOnVisit } from "@/components/dashboard/inbox-clear-on-visit";
 import { DashboardNavbar } from "@/components/dashboard/navbar";
 import { createClient } from "@/lib/supabase/server";
 import { getAppointments } from "@/services/appointment.service";
@@ -27,6 +28,7 @@ export default async function AppointmentsPage() {
     <div className="min-h-screen bg-gradient-to-b from-[#120726] via-[#0f061f] to-[#080312]">
       <div className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8">
       <DashboardNavbar active="appointments" userEmail={user.email ?? ""} />
+      <InboxClearOnVisit />
       <main className="min-w-0 flex-1">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-violet-50">

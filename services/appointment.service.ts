@@ -1,7 +1,9 @@
+import { isAppointmentWithinWorkSchedule } from "@/lib/work-schedule";
 import {
   runTelegramBookingNotification,
   type TelegramBookingNotifyMeta,
 } from "@/lib/telegram-immediate-booking";
+import { getBookingWorkContextForUser } from "./profile.service";
 import { getAuthenticatedContext } from "./session";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -94,6 +96,24 @@ export async function createAppointment(
       error: {
         code: "APPOINTMENT_TIME_OVERLAP",
         message: "Цей час уже зайнятий іншим записом.",
+      },
+    };
+  }
+
+  const workCtx = await getBookingWorkContextForUser(supabase, userId);
+  if (
+    !isAppointmentWithinWorkSchedule(
+      input.starts_at,
+      input.ends_at,
+      workCtx.timezone,
+      workCtx.schedule,
+    )
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "OUTSIDE_WORK_HOURS",
+        message: "Обраний час поза робочим графіком. Змініть час або оновіть графік у налаштуваннях.",
       },
     };
   }
@@ -244,6 +264,25 @@ export async function updateAppointment(
         error: {
           code: "APPOINTMENT_TIME_OVERLAP",
           message: "Цей час уже зайнятий іншим записом.",
+        },
+      };
+    }
+
+    const workCtx = await getBookingWorkContextForUser(supabase, userId);
+    if (
+      !isAppointmentWithinWorkSchedule(
+        nextStartsAt,
+        nextEndsAt,
+        workCtx.timezone,
+        workCtx.schedule,
+      )
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "OUTSIDE_WORK_HOURS",
+          message:
+            "Обраний час поза робочим графіком. Змініть час або оновіть графік у налаштуваннях.",
         },
       };
     }

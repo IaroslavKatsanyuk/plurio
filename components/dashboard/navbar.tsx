@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { BriefcaseBusiness, CalendarDays, LogOut, Menu, Settings, Users, X } from "lucide-react";
+import {
+  Bell,
+  BriefcaseBusiness,
+  CalendarDays,
+  LogOut,
+  Menu,
+  Settings,
+  Users,
+  X,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { signOut } from "@/services/auth.service";
@@ -21,6 +30,33 @@ const navItems = [
 export function DashboardNavbar({ active, userEmail }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [inboxUnread, setInboxUnread] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadInbox() {
+      try {
+        const res = await fetch("/api/inbox");
+        const json = (await res.json()) as { data?: { unreadCount: number } };
+        if (!cancelled && res.ok && json.data) {
+          setInboxUnread(json.data.unreadCount);
+        }
+      } catch {
+        if (!cancelled) {
+          setInboxUnread(null);
+        }
+      }
+    }
+    void loadInbox();
+    function onInboxUpdated() {
+      void loadInbox();
+    }
+    window.addEventListener("plurio:inbox-updated", onInboxUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("plurio:inbox-updated", onInboxUpdated);
+    };
+  }, []);
 
   useEffect(() => {
     if (!mobileOpen) {
@@ -124,6 +160,19 @@ export function DashboardNavbar({ active, userEmail }: Props) {
           <p className="text-sm font-semibold tracking-wide text-violet-100">Plurio</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/appointments"
+            className="relative rounded-md border border-violet-700/70 p-1.5 text-violet-200 transition hover:bg-violet-800/60 hover:text-violet-50"
+            aria-label="Записи та сповіщення"
+            title="Записи"
+          >
+            <Bell className="h-5 w-5" aria-hidden />
+            {inboxUnread != null && inboxUnread > 0 ? (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+                {inboxUnread > 99 ? "99+" : inboxUnread}
+              </span>
+            ) : null}
+          </Link>
           <p className="hidden max-w-[160px] truncate text-xs text-violet-200 sm:block">{displayEmail}</p>
           <div className="relative">
             <button

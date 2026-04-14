@@ -21,6 +21,10 @@ export async function middleware(request: NextRequest) {
     const target = new URL("/clients", request.url);
     return NextResponse.redirect(target);
   }
+  if (pathname === "/u" || pathname.startsWith("/u/")) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
   if (pathname === "/запис" || pathname === "/zapis") {
     const target = new URL("/appointments", request.url);
     return NextResponse.redirect(target);

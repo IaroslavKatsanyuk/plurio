@@ -1,11 +1,32 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+import {
+  computeSlotStartsForWorkDay,
+  daysInMonth,
+  DEFAULT_BOOKING_TIMEZONE,
+  getWeekdayKeyAtUtcMs,
+  hasAnyBookableSlotInZonedBookingMonths,
+  isAppointmentWithinWorkSchedule,
+  isValidIanaTimezone,
+  legacyDefaultSchedule,
+  normalizeProfileWeeklySchedule,
+  nextThreeZonedYearMonths,
+  type WorkWeeklySchedule,
+  zonedThreeMonthBusyRangeUtc,
+  zonedWallMidnightUtcMs,
+  zonedTodayYmd,
+} from "./work-schedule.ts";
+
 const TELEGRAM_API = "https://api.telegram.org";
-const WORK_DAY_START_HOUR = 8;
-const WORK_DAY_END_HOUR = 21;
 const SLOT_STEP_MINUTES = 15;
-const TWO_MONTHS_DAYS = 62;
+
+/** Inline callback prefixes (Telegram callback_data max 64 bytes; UUID = 36 chars). */
+const CB_MONTH = "mn:";
+const CB_DAY = "dy:";
+const CB_SLOT = "sl:";
+const CB_YES = "y:";
+const CB_NO = "n";
 
 /** Reply keyboard: must match handler in handlePlainTextForClient */
 const MENU_BTN_BOOK = "Запис";
@@ -58,6 +79,31 @@ type AppointmentListRow = {
   status: string;
   services: { name: string } | null;
 };
+
+async function loadOwnerBookingWork(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ tz: string; schedule: WorkWeeklySchedule }> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("booking_timezone, work_weekly_schedule")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return { tz: DEFAULT_BOOKING_TIMEZONE, schedule: legacyDefaultSchedule() };
+  }
+  const row = data as {
+    booking_timezone?: string | null;
+    work_weekly_schedule?: unknown | null;
+  };
+  const rawTz = row.booking_timezone?.trim() || DEFAULT_BOOKING_TIMEZONE;
+  const tz = isValidIanaTimezone(rawTz) ? rawTz : DEFAULT_BOOKING_TIMEZONE;
+  return {
+    tz,
+    schedule: normalizeProfileWeeklySchedule(row.work_weekly_schedule),
+  };
+}
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
@@ -194,6 +240,11 @@ function isMyAppointmentsMenuAction(text: string): boolean {
   return low === "/my" || low === "/appointments";
 }
 
+function isMenuHelpCommand(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return t === "/menu" || t === "/help";
+}
+
 async function handlePlainTextForClient(params: {
   botToken: string;
   supabase: ReturnType<typeof createClient>;
@@ -202,6 +253,24 @@ async function handlePlainTextForClient(params: {
 }) {
   const { botToken, supabase, chatId, text } = params;
   const ctx = await getClientContextByChatId(supabase, chatId);
+
+  if (isMenuHelpCommand(text)) {
+    if (!ctx) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Спочатку підключи Telegram через персональне посилання від майстра.",
+      );
+      return;
+    }
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Нижче кнопки: «Запис» — послуга, місяць, день і час; «Мої записи» — що вже заплановано.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
 
   if (isBookMenuAction(text)) {
     if (!ctx) {
@@ -254,15 +323,24 @@ function appointmentStatusLabelUa(status: string): string {
   return status;
 }
 
-function formatKyivDateTime(iso: string): string {
+function formatZonedDateTime(iso: string, tz: string): string {
   return new Intl.DateTimeFormat("uk-UA", {
-    timeZone: "Europe/Kyiv",
+    timeZone: tz,
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(iso));
+}
+
+function formatZonedShortDay(timestampMs: number, tz: string): string {
+  return new Intl.DateTimeFormat("uk-UA", {
+    timeZone: tz,
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  }).format(new Date(timestampMs));
 }
 
 async function sendUpcomingAppointmentsMessage(params: {
@@ -305,15 +383,146 @@ async function sendUpcomingAppointmentsMessage(params: {
     return;
   }
 
+  const { data: clientOwner } = await supabase
+    .from("clients")
+    .select("user_id")
+    .eq("id", clientId)
+    .maybeSingle();
+  const ownerUserId = clientOwner?.user_id as string | undefined;
+  const ownerTz = ownerUserId
+    ? (await loadOwnerBookingWork(supabase, ownerUserId)).tz
+    : DEFAULT_BOOKING_TIMEZONE;
+
   const lines = list.map((row) => {
     const svc = row.services?.name?.trim();
     const label = svc || row.title?.trim() || "Запис";
     const st = appointmentStatusLabelUa(row.status);
-    return `• ${formatKyivDateTime(row.starts_at)} — ${label} (${st})`;
+    return `• ${formatZonedDateTime(row.starts_at, ownerTz)} — ${label} (${st})`;
   });
 
   const text = ["Твої майбутні записи:", "", ...lines].join("\n");
   await sendBotMessage(botToken, chatId, text, clientMainMenuKeyboard());
+}
+
+function parsePrefixedUuidRest(
+  data: string,
+  prefix: string,
+): { serviceId: string; rest: string } | null {
+  if (!data.startsWith(prefix)) {
+    return null;
+  }
+  const body = data.slice(prefix.length);
+  if (body.length < 38 || body[36] !== ":") {
+    return null;
+  }
+  const serviceId = body.slice(0, 36);
+  const rest = body.slice(37);
+  if (!/^[0-9a-f-]{36}$/i.test(serviceId)) {
+    return null;
+  }
+  return { serviceId, rest };
+}
+
+function normalizeChatIdForTelegramApi(
+  raw: string | number | bigint | null | undefined,
+): string | number | null {
+  if (raw == null || raw === "") {
+    return null;
+  }
+  if (typeof raw === "bigint") {
+    return raw.toString();
+  }
+  if (typeof raw === "number") {
+    return Number.isFinite(raw) && raw !== 0 ? raw : null;
+  }
+  const s = String(raw).trim();
+  if (!s || s === "0") {
+    return null;
+  }
+  return /^\d+$/.test(s) ? (s.length > 12 ? s : Number(s)) : s;
+}
+
+function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return null;
+  return { y, m, d };
+}
+
+function isYmdBeforeTodayInZone(ymd: string, tz: string): boolean {
+  const p = parseYmd(ymd);
+  if (!p) return true;
+  const t = zonedTodayYmd(tz);
+  const a = p.y * 10000 + p.m * 100 + p.d;
+  const b = t.y * 10000 + t.m * 100 + t.d;
+  return a < b;
+}
+
+function isYmdInBookingWindow(ymd: string, tz: string): boolean {
+  const p = parseYmd(ymd);
+  if (!p) return false;
+  const allowed = nextThreeZonedYearMonths(tz);
+  const ym = ymd.slice(0, 7);
+  return allowed.includes(ym);
+}
+
+function monthTitleUk(ym: string): string {
+  const parts = ym.split("-");
+  if (parts.length !== 2) {
+    return ym;
+  }
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) {
+    return ym;
+  }
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  return new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric", timeZone: "UTC" }).format(d);
+}
+
+async function loadBusyAppointments(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  rangeStartIso: string,
+  rangeEndIso: string,
+): Promise<Array<{ s: number; e: number }>> {
+  const { data: rows, error } = await supabase
+    .from("appointments")
+    .select("starts_at, ends_at")
+    .eq("user_id", userId)
+    .in("status", ["scheduled", "confirmed"])
+    .lt("starts_at", rangeEndIso)
+    .gt("ends_at", rangeStartIso);
+
+  if (error) {
+    console.error("loadBusyAppointments", error);
+    return [];
+  }
+  return ((rows ?? []) as AppointmentRangeRow[]).map((row) => ({
+    s: new Date(row.starts_at).getTime(),
+    e: new Date(row.ends_at).getTime(),
+  }));
+}
+
+async function appointmentOverlapExists(params: {
+  supabase: ReturnType<typeof createClient>;
+  userId: string;
+  startsIso: string;
+  endsIso: string;
+}): Promise<boolean> {
+  const { data, error } = await params.supabase
+    .from("appointments")
+    .select("id")
+    .eq("user_id", params.userId)
+    .in("status", ["scheduled", "confirmed"])
+    .lt("starts_at", params.endsIso)
+    .gt("ends_at", params.startsIso)
+    .limit(1);
+  if (error) {
+    return true;
+  }
+  return (data ?? []).length > 0;
 }
 
 async function handleCallbackQuery(params: {
@@ -335,6 +544,16 @@ async function handleCallbackQuery(params: {
     return;
   }
 
+  if (data === CB_NO) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Добре, запис не створено.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
   if (data === "appt:list") {
     const ctx = await getClientContextByChatId(supabase, chatId);
     if (!ctx) {
@@ -349,13 +568,98 @@ async function handleCallbackQuery(params: {
     return;
   }
 
+  const yesParsed = parsePrefixedUuidRest(data, CB_YES);
+  if (yesParsed) {
+    const startMs = Number(yesParsed.rest);
+    if (!Number.isFinite(startMs)) {
+      await sendBotMessage(botToken, chatId, "Некоректний час. Почни запис спочатку: «Запис».");
+      return;
+    }
+    await confirmTelegramBooking({
+      botToken,
+      supabase,
+      chatId,
+      serviceId: yesParsed.serviceId,
+      startMs,
+    });
+    return;
+  }
+
+  const slotParsed = parsePrefixedUuidRest(data, CB_SLOT);
+  if (slotParsed) {
+    const startMs = Number(slotParsed.rest);
+    if (!Number.isFinite(startMs)) {
+      await sendBotMessage(botToken, chatId, "Некоректний час. Обери слот ще раз.");
+      return;
+    }
+    await promptBookingConfirm({
+      botToken,
+      supabase,
+      chatId,
+      serviceId: slotParsed.serviceId,
+      startMs,
+    });
+    return;
+  }
+
+  const dayParsed = parsePrefixedUuidRest(data, CB_DAY);
+  if (dayParsed) {
+    const ymd = dayParsed.rest;
+    if (!parseYmd(ymd)) {
+      await sendBotMessage(botToken, chatId, "Некоректна дата. Обери день знову.");
+      return;
+    }
+    const dayCtx = await getClientContextByChatId(supabase, chatId);
+    if (!dayCtx) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Підключення Telegram не знайдено. Відкрий персональне посилання від майстра ще раз.",
+      );
+      return;
+    }
+    const dayOwnerBook = await loadOwnerBookingWork(supabase, dayCtx.user_id);
+    if (!isYmdInBookingWindow(ymd, dayOwnerBook.tz)) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "Ця дата вже недоступна для запису. Обери «Запис» знову.",
+      );
+      return;
+    }
+    await sendSlotsKeyboard({
+      botToken,
+      supabase,
+      chatId,
+      serviceId: dayParsed.serviceId,
+      localYmd: ymd,
+    });
+    return;
+  }
+
+  const monthParsed = parsePrefixedUuidRest(data, CB_MONTH);
+  if (monthParsed) {
+    if (!/^\d{4}-\d{2}$/.test(monthParsed.rest)) {
+      await sendBotMessage(botToken, chatId, "Некоректний місяць. Почни з «Запис».");
+      return;
+    }
+    await sendDaysForMonthKeyboard({
+      botToken,
+      supabase,
+      chatId,
+      serviceId: monthParsed.serviceId,
+      yearMonth: monthParsed.rest,
+    });
+    return;
+  }
+
   if (data.startsWith("svc:")) {
     const serviceId = data.slice(4).trim();
     if (!serviceId) {
       await sendBotMessage(botToken, chatId, "Не вдалося визначити послугу. Спробуй ще раз.");
       return;
     }
-    await sendAvailableDates({ botToken, supabase, chatId, serviceId });
+    await sendMonthPickerForService({ botToken, supabase, chatId, serviceId });
   }
 }
 
@@ -389,7 +693,7 @@ async function showServicePicker(params: {
 
   const list = (services ?? []) as ServiceRow[];
   if (list.length === 0) {
-    await sendBotMessage(botToken, chatId, "Зараз немає доступних послуг для онлайн-запису.");
+    await sendBotMessage(botToken, chatId, "Зараз немає доступних послуг для запису через бота.");
     return;
   }
 
@@ -410,12 +714,12 @@ async function showServicePicker(params: {
   await sendBotMessage(
     botToken,
     chatId,
-    "Обери послугу, і я покажу доступні дати на найближчі 2 місяці:",
+    "Обери послугу, далі — місяць, день і час для запису:",
     { inline_keyboard: inlineKeyboard },
   );
 }
 
-async function sendAvailableDates(params: {
+async function sendMonthPickerForService(params: {
   botToken: string;
   supabase: ReturnType<typeof createClient>;
   chatId: number;
@@ -444,100 +748,501 @@ async function sendAvailableDates(params: {
     return;
   }
 
-  const now = new Date();
-  const rangeStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const rangeEnd = new Date(rangeStart.getTime() + TWO_MONTHS_DAYS * 24 * 60 * 60 * 1000);
-
-  const { data: rows, error: aptError } = await supabase
-    .from("appointments")
-    .select("starts_at, ends_at")
-    .eq("user_id", ctx.user_id)
-    .lt("starts_at", rangeEnd.toISOString())
-    .gt("ends_at", rangeStart.toISOString());
-
-  if (aptError) {
-    console.error("Failed to load appointments", aptError);
-    await sendBotMessage(botToken, chatId, "Не вдалося завантажити зайнятість. Спробуй пізніше.");
-    return;
-  }
-
-  const busy = ((rows ?? []) as AppointmentRangeRow[]).map((row) => ({
-    s: new Date(row.starts_at).getTime(),
-    e: new Date(row.ends_at).getTime(),
-  }));
+  const ownerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+  const { startMs, endMs } = zonedThreeMonthBusyRangeUtc(ownerBook.tz);
+  const busy = await loadBusyAppointments(
+    supabase,
+    ctx.user_id,
+    new Date(startMs).toISOString(),
+    new Date(endMs).toISOString(),
+  );
 
   const durationMs = (service as ServiceRow).duration_minutes * 60 * 1000;
-  const availableDates: string[] = [];
-  for (let i = 0; i < TWO_MONTHS_DAYS; i += 1) {
-    const dayStartMs = rangeStart.getTime() + i * 24 * 60 * 60 * 1000;
-    if (hasAnySlotForDay(dayStartMs, durationMs, busy)) {
-      availableDates.push(formatKyivDate(dayStartMs));
-    }
-  }
-
-  if (availableDates.length === 0) {
+  const nowUtc = Date.now();
+  if (
+    !hasAnyBookableSlotInZonedBookingMonths({
+      tz: ownerBook.tz,
+      durationMs,
+      busy,
+      schedule: ownerBook.schedule,
+      slotStepMinutes: SLOT_STEP_MINUTES,
+      nowUtcMs: nowUtc,
+    })
+  ) {
+    const emptyKb: InlineKeyboardButton[][] = [
+      [
+        { text: "Обрати іншу послугу", callback_data: "book:start" },
+        { text: "Мої записи", callback_data: "appt:list" },
+      ],
+    ];
     await sendBotMessage(
       botToken,
       chatId,
-      `На жаль, на найближчі 2 місяці для "${(service as ServiceRow).name}" вільних дат немає.`,
-      {
-        inline_keyboard: [
-          [
-            { text: "Обрати іншу послугу", callback_data: "book:start" },
-            { text: "Мої записи", callback_data: "appt:list" },
-          ],
-        ],
-      },
+      `На жаль, у найближчі 3 місяці (поточний + 2) для «${(service as ServiceRow).name}» вільних вікон немає.`,
+      { inline_keyboard: emptyKb },
     );
     return;
   }
 
-  const text = [
-    `Доступні дати на 2 місяці для "${(service as ServiceRow).name}":`,
-    availableDates.map((d) => `- ${d}`).join("\n"),
-    "",
-    "Щоб забронювати конкретний час, напиши майстру або обери іншу послугу.",
-  ].join("\n");
+  const sortedMonths = nextThreeZonedYearMonths(ownerBook.tz);
+  const monthRows: InlineKeyboardButton[][] = [];
+  let row: InlineKeyboardButton[] = [];
+  for (const ym of sortedMonths) {
+    row.push({
+      text: monthTitleUk(ym),
+      callback_data: `${CB_MONTH}${serviceId}:${ym}`,
+    });
+    if (row.length >= 2) {
+      monthRows.push(row);
+      row = [];
+    }
+  }
+  if (row.length) {
+    monthRows.push(row);
+  }
 
-  await sendBotMessage(botToken, chatId, text, {
+  const inlineKeyboard: InlineKeyboardButton[][] = [
+    ...monthRows,
+    [
+      { text: "Інша послуга", callback_data: "book:start" },
+      { text: "Мої записи", callback_data: "appt:list" },
+    ],
+  ];
+
+  await sendBotMessage(
+    botToken,
+    chatId,
+    `Обери місяць для «${(service as ServiceRow).name}» (поточний і ще 2 місяці, час — ${ownerBook.tz}):`,
+    { inline_keyboard: inlineKeyboard },
+  );
+}
+
+async function sendDaysForMonthKeyboard(params: {
+  botToken: string;
+  supabase: ReturnType<typeof createClient>;
+  chatId: number;
+  serviceId: string;
+  yearMonth: string;
+}) {
+  const { botToken, supabase, chatId, serviceId, yearMonth } = params;
+  const ctx = await getClientContextByChatId(supabase, chatId);
+  if (!ctx) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Підключення Telegram не знайдено. Відкрий персональне посилання від майстра ще раз.",
+    );
+    return;
+  }
+
+  const { data: service, error: serviceError } = await supabase
+    .from("services")
+    .select("id, name, duration_minutes")
+    .eq("user_id", ctx.user_id)
+    .eq("id", serviceId)
+    .maybeSingle();
+
+  if (serviceError || !service) {
+    await sendBotMessage(botToken, chatId, "Послуга недоступна. Обери іншу.");
+    return;
+  }
+
+  const monthOwnerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+  if (!nextThreeZonedYearMonths(monthOwnerBook.tz).includes(yearMonth)) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей місяць уже недоступний. Обери «Запис» знову.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const [ys, ms] = yearMonth.split("-").map(Number);
+  const dim = daysInMonth(ys, ms);
+
+  const dayRows: InlineKeyboardButton[][] = [];
+  let dRow: InlineKeyboardButton[] = [];
+  for (let day = 1; day <= dim; day += 1) {
+    const ymd = `${yearMonth}-${String(day).padStart(2, "0")}`;
+    dRow.push({
+      text: String(day),
+      callback_data: `${CB_DAY}${serviceId}:${ymd}`,
+    });
+    if (dRow.length >= 7) {
+      dayRows.push(dRow);
+      dRow = [];
+    }
+  }
+  if (dRow.length) {
+    dayRows.push(dRow);
+  }
+
+  const inlineKeyboard: InlineKeyboardButton[][] = [
+    ...dayRows,
+    [
+      { text: "Назад: місяці", callback_data: `svc:${serviceId}` },
+      { text: "Мої записи", callback_data: "appt:list" },
+    ],
+  ];
+
+  await sendBotMessage(
+    botToken,
+    chatId,
+    `Обери день — ${monthTitleUk(yearMonth)} (усі дні місяця). Послуга «${(service as ServiceRow).name}». Минуле — не для запису.`,
+    { inline_keyboard: inlineKeyboard },
+  );
+}
+
+async function sendSlotsKeyboard(params: {
+  botToken: string;
+  supabase: ReturnType<typeof createClient>;
+  chatId: number;
+  serviceId: string;
+  localYmd: string;
+}) {
+  const { botToken, supabase, chatId, serviceId, localYmd } = params;
+  const ctx = await getClientContextByChatId(supabase, chatId);
+  if (!ctx) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Підключення Telegram не знайдено. Відкрий персональне посилання від майстра ще раз.",
+    );
+    return;
+  }
+
+  const { data: service, error: serviceError } = await supabase
+    .from("services")
+    .select("id, name, duration_minutes")
+    .eq("user_id", ctx.user_id)
+    .eq("id", serviceId)
+    .maybeSingle();
+
+  if (serviceError || !service) {
+    await sendBotMessage(botToken, chatId, "Послуга недоступна. Обери іншу.");
+    return;
+  }
+
+  const slotOwnerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+
+  if (!parseYmd(localYmd) || !isYmdInBookingWindow(localYmd, slotOwnerBook.tz)) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Дата недоступна. Обери день з календаря знову.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  if (isYmdBeforeTodayInZone(localYmd, slotOwnerBook.tz)) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей день уже минув. Обери сьогоднішню або майбутню дату.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const ymdParts = parseYmd(localYmd)!;
+  const dayStartMs = zonedWallMidnightUtcMs(
+    ymdParts.y,
+    ymdParts.m,
+    ymdParts.d,
+    slotOwnerBook.tz,
+  );
+
+  const { startMs, endMs } = zonedThreeMonthBusyRangeUtc(slotOwnerBook.tz);
+  const busy = await loadBusyAppointments(
+    supabase,
+    ctx.user_id,
+    new Date(startMs).toISOString(),
+    new Date(endMs).toISOString(),
+  );
+  const durationMs = (service as ServiceRow).duration_minutes * 60 * 1000;
+  const weekday = getWeekdayKeyAtUtcMs(dayStartMs, slotOwnerBook.tz);
+  if (!weekday) {
+    await sendBotMessage(botToken, chatId, "Не вдалося визначити день тижня. Спробуй іншу дату.");
+    return;
+  }
+  const slotStarts = computeSlotStartsForWorkDay({
+    dayStartUtcMs: dayStartMs,
+    durationMs,
+    busy,
+    schedule: slotOwnerBook.schedule,
+    weekday,
+    slotStepMinutes: SLOT_STEP_MINUTES,
+    nowUtcMs: Date.now(),
+  });
+
+  if (slotStarts.length === 0) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "На цей день вільних годин немає. Обери інший день.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const timeFmt = new Intl.DateTimeFormat("uk-UA", {
+    timeZone: slotOwnerBook.tz,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const slotRows: InlineKeyboardButton[][] = [];
+  let sRow: InlineKeyboardButton[] = [];
+  for (const t of slotStarts) {
+    sRow.push({
+      text: timeFmt.format(new Date(t)),
+      callback_data: `${CB_SLOT}${serviceId}:${t}`,
+    });
+    if (sRow.length >= 4) {
+      slotRows.push(sRow);
+      sRow = [];
+    }
+  }
+  if (sRow.length) {
+    slotRows.push(sRow);
+  }
+
+  const ym = localYmd.slice(0, 7);
+  const inlineKeyboard: InlineKeyboardButton[][] = [
+    ...slotRows,
+    [
+      { text: "Назад: дні", callback_data: `${CB_MONTH}${serviceId}:${ym}` },
+      { text: "Мої записи", callback_data: "appt:list" },
+    ],
+  ];
+
+  await sendBotMessage(
+    botToken,
+    chatId,
+    `Обери час для «${(service as ServiceRow).name}» (${formatZonedShortDay(dayStartMs, slotOwnerBook.tz)}):`,
+    { inline_keyboard: inlineKeyboard },
+  );
+}
+
+async function promptBookingConfirm(params: {
+  botToken: string;
+  supabase: ReturnType<typeof createClient>;
+  chatId: number;
+  serviceId: string;
+  startMs: number;
+}) {
+  const { botToken, supabase, chatId, serviceId, startMs } = params;
+  const ctx = await getClientContextByChatId(supabase, chatId);
+  if (!ctx) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Підключення Telegram не знайдено. Відкрий персональне посилання від майстра ще раз.",
+    );
+    return;
+  }
+
+  const { data: service, error: serviceError } = await supabase
+    .from("services")
+    .select("id, name, duration_minutes")
+    .eq("user_id", ctx.user_id)
+    .eq("id", serviceId)
+    .maybeSingle();
+
+  if (serviceError || !service) {
+    await sendBotMessage(botToken, chatId, "Послуга недоступна. Почни з «Запис».");
+    return;
+  }
+
+  const promptOwnerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+  const svcRow = service as ServiceRow;
+  const startsIsoProbe = new Date(startMs).toISOString();
+  const endsIsoProbe = new Date(
+    startMs + svcRow.duration_minutes * 60 * 1000,
+  ).toISOString();
+  if (
+    !isAppointmentWithinWorkSchedule(
+      startsIsoProbe,
+      endsIsoProbe,
+      promptOwnerBook.tz,
+      promptOwnerBook.schedule,
+    )
+  ) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей час уже поза робочим графіком майстра. Обери інший слот через «Запис».",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const whenLabel = formatZonedDateTime(startsIsoProbe, promptOwnerBook.tz);
+  const svcName = svcRow.name;
+  const yesData = `${CB_YES}${serviceId}:${startMs}`;
+
+  await sendBotMessage(botToken, chatId, `Підтвердити запис?\n\n${svcName}\n${whenLabel}`, {
     inline_keyboard: [
       [
-        { text: "Інша послуга", callback_data: "book:start" },
-        { text: "Мої записи", callback_data: "appt:list" },
+        { text: "Так", callback_data: yesData },
+        { text: "Ні", callback_data: CB_NO },
       ],
     ],
   });
 }
 
-function hasAnySlotForDay(dayStartMs: number, durationMs: number, busy: Array<{ s: number; e: number }>): boolean {
-  const workOpen = dayStartMs + WORK_DAY_START_HOUR * 60 * 60 * 1000;
-  const workClose = dayStartMs + WORK_DAY_END_HOUR * 60 * 60 * 1000;
-  const stepMs = SLOT_STEP_MINUTES * 60 * 1000;
-
-  for (let t = workOpen; t + durationMs <= workClose; t += stepMs) {
-    const slotEnd = t + durationMs;
-    let collides = false;
-    for (const b of busy) {
-      if (t < b.e && slotEnd > b.s) {
-        collides = true;
-        break;
-      }
-    }
-    if (!collides) {
-      return true;
-    }
+async function confirmTelegramBooking(params: {
+  botToken: string;
+  supabase: ReturnType<typeof createClient>;
+  chatId: number;
+  serviceId: string;
+  startMs: number;
+}) {
+  const { botToken, supabase, chatId, serviceId, startMs } = params;
+  const ctx = await getClientContextByChatId(supabase, chatId);
+  if (!ctx) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Підключення Telegram не знайдено. Відкрий персональне посилання від майстра ще раз.",
+    );
+    return;
   }
 
-  return false;
-}
+  const { data: service, error: serviceError } = await supabase
+    .from("services")
+    .select("id, name, duration_minutes")
+    .eq("user_id", ctx.user_id)
+    .eq("id", serviceId)
+    .maybeSingle();
 
-function formatKyivDate(timestampMs: number): string {
-  return new Intl.DateTimeFormat("uk-UA", {
-    timeZone: "Europe/Kyiv",
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
-  }).format(new Date(timestampMs));
+  if (serviceError || !service) {
+    await sendBotMessage(botToken, chatId, "Послуга недоступна. Почни з «Запис».");
+    return;
+  }
+
+  const svc = service as ServiceRow;
+  const startsAt = new Date(startMs);
+  if (!Number.isFinite(startsAt.getTime())) {
+    await sendBotMessage(botToken, chatId, "Некоректний час. Почни з «Запис».");
+    return;
+  }
+
+  const startsIso = startsAt.toISOString();
+  const endsIso = new Date(startMs + svc.duration_minutes * 60 * 1000).toISOString();
+
+  const confirmOwnerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+  if (
+    !isAppointmentWithinWorkSchedule(
+      startsIso,
+      endsIso,
+      confirmOwnerBook.tz,
+      confirmOwnerBook.schedule,
+    )
+  ) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей час уже поза робочим графіком. Обери інший слот через «Запис».",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const overlap = await appointmentOverlapExists({
+    supabase,
+    userId: ctx.user_id,
+    startsIso,
+    endsIso,
+  });
+  if (overlap) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей час щойно зайняли. Обери інший слот через «Запис».",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const clientName = ctx.name?.trim() ?? "Клієнт";
+  const title = `Запис: ${clientName}`.slice(0, 200);
+
+  const { data: created, error: insErr } = await supabase
+    .from("appointments")
+    .insert({
+      user_id: ctx.user_id,
+      client_id: ctx.id,
+      service_id: svc.id,
+      title,
+      starts_at: startsIso,
+      ends_at: endsIso,
+      status: "scheduled",
+      notes: "Запис у Telegram-боті",
+    })
+    .select("id")
+    .single();
+
+  if (insErr || !created?.id) {
+    console.error("Telegram booking insert failed", insErr);
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Не вдалося створити запис. Спробуй ще раз або напиши майстру.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const appointmentId = created.id as string;
+
+  const { error: inboxErr } = await supabase.from("owner_inbox_events").insert({
+    user_id: ctx.user_id,
+    kind: "telegram_booking",
+    appointment_id: appointmentId,
+  });
+  if (inboxErr) {
+    console.error("owner_inbox_events insert failed", inboxErr);
+  }
+
+  const whenLabel = formatZonedDateTime(startsIso, confirmOwnerBook.tz);
+
+  const clientLines = ["Plurio: запис підтверджено.", `Час: ${whenLabel}`, `Послуга: ${svc.name}`];
+  if (ctx.name?.trim()) {
+    clientLines.push(`Ім'я: ${ctx.name.trim()}`);
+  }
+  await sendBotMessage(botToken, chatId, clientLines.join("\n"), clientMainMenuKeyboard());
+
+  const sentAt = new Date().toISOString();
+  await supabase
+    .from("appointments")
+    .update({ telegram_reminder_24h_sent_at: sentAt })
+    .eq("id", appointmentId);
+
+  const { data: ownerProfile } = await supabase
+    .from("profiles")
+    .select("telegram_chat_id, display_name")
+    .eq("user_id", ctx.user_id)
+    .maybeSingle();
+
+  const ownerChat = normalizeChatIdForTelegramApi(
+    (ownerProfile as { telegram_chat_id?: string | number | null } | null)?.telegram_chat_id,
+  );
+  if (ownerChat != null) {
+    const ownerMsg = [
+      "Plurio: новий запис через Telegram.",
+      `Клієнт: ${clientName}`,
+      `Послуга: ${svc.name}`,
+      `Час: ${whenLabel}`,
+    ].join("\n");
+    await fetch(`${TELEGRAM_API}/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: ownerChat, text: ownerMsg }),
+    });
+  }
 }
 
 async function getClientContextByChatId(

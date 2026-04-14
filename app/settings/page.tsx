@@ -1,5 +1,11 @@
 import { DashboardNavbar } from "@/components/dashboard/navbar";
 import { TelegramSettingsCard } from "@/components/dashboard/telegram-settings-card";
+import { WorkScheduleSettingsCard } from "@/components/dashboard/work-schedule-settings-card";
+import {
+  DEFAULT_BOOKING_TIMEZONE,
+  normalizeProfileWeeklySchedule,
+  scheduleToWeeklyForm,
+} from "@/lib/work-schedule";
 import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/services/profile.service";
 
@@ -15,6 +21,12 @@ export default async function SettingsPage() {
 
   const profileResult = await getProfile();
   const profile = profileResult.ok ? profileResult.data : null;
+  const workInitialTz =
+    profile?.booking_timezone?.trim() || DEFAULT_BOOKING_TIMEZONE;
+  const workInitialWeekly = scheduleToWeeklyForm(
+    normalizeProfileWeeklySchedule(profile?.work_weekly_schedule),
+  );
+  const workExplicitSchedule = profile?.work_weekly_schedule != null;
   const telegramLinked =
     profile?.telegram_chat_id != null &&
     profile.telegram_chat_id !== "" &&
@@ -30,6 +42,11 @@ export default async function SettingsPage() {
             <p className="text-sm text-violet-300">{user.email}</p>
           </header>
           <TelegramSettingsCard telegramLinked={telegramLinked} />
+          <WorkScheduleSettingsCard
+            initialTimezone={workInitialTz}
+            initialWeekly={workInitialWeekly}
+            hasExplicitSchedule={workExplicitSchedule}
+          />
         </main>
       </div>
     </div>

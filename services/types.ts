@@ -9,6 +9,10 @@ export type ProfileRow = {
   user_id: string;
   display_name: string | null;
   booking_slug: string | null;
+  /** IANA, наприклад Europe/Kyiv — для календаря слотів і перевірки записів */
+  booking_timezone: string;
+  /** null = легасі-графік 08:00–21:00 щодня */
+  work_weekly_schedule: unknown | null;
   /** bigint з БД може прийти як рядок у JSON */
   telegram_chat_id: string | number | null;
   telegram_link_token: string | null;

@@ -66,6 +66,11 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
         link» у рядку клієнта) — у таблиці має бути статус «Підключено». Лише нік у полі недостатньо. Нагадування
         ~за 2 год до візиту потребує cron у Supabase.
       </p>
+      <p className="mb-4 text-sm text-violet-200">
+        У боті для клієнта: «Запис» (послуга → місяць → день → час → підтвердження) і «Мої записи», команди /menu та
+        /help. Якщо ти підключив Telegram у налаштуваннях, отримаєш повідомлення про нові записи з бота та бейдж на
+        дзвіночку біля «Записів».
+      </p>
       {telegramLinked ? (
         <p className="text-sm font-medium text-emerald-300">Бота підключено.</p>
       ) : (

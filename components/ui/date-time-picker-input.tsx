@@ -33,7 +33,7 @@ type Props = {
    * undefined — free time input; null — loading slots.
    */
   slotStartsIso?: string[] | null;
-  /** Calendar popover shows only the date; time is below the trigger (public /u/… booking). */
+  /** Calendar popover shows only the date; time is below the trigger. */
   hideTimeInCalendar?: boolean;
 };
 
