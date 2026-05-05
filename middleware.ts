@@ -13,7 +13,7 @@ export async function middleware(request: NextRequest) {
   const { response, user } = await updateSession(request);
   const pathname = request.nextUrl.pathname;
 
-  if (pathname === "/dashboard" || pathname === "/dashboard/appointments") {
+  if (pathname === "/dashboard/appointments") {
     const target = new URL("/appointments", request.url);
     return NextResponse.redirect(target);
   }
@@ -35,15 +35,26 @@ export async function middleware(request: NextRequest) {
   }
 
   const isProtectedPath =
+    pathname === "/dashboard" ||
+    pathname.startsWith("/dashboard/") ||
     pathname === "/appointments" ||
     pathname.startsWith("/appointments/") ||
     pathname === "/clients" ||
     pathname.startsWith("/clients/") ||
     pathname === "/services" ||
     pathname.startsWith("/services/") ||
+    pathname === "/orders" ||
+    pathname.startsWith("/orders/") ||
+    pathname === "/products" ||
+    pathname.startsWith("/products/") ||
+    pathname === "/analytics" ||
+    pathname.startsWith("/analytics/") ||
+    pathname === "/finance" ||
+    pathname.startsWith("/finance/") ||
+    pathname === "/taxes" ||
+    pathname.startsWith("/taxes/") ||
     pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
-    pathname.startsWith("/dashboard");
+    pathname.startsWith("/settings/");
 
   if (isProtectedPath && !user) {
     const loginUrl = new URL("/login", request.url);
@@ -52,7 +63,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if ((pathname === "/login" || pathname === "/register") && user) {
-    return NextResponse.redirect(new URL("/appointments", request.url));
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   return response;

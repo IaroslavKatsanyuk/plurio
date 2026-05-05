@@ -94,6 +94,10 @@ export type ServiceRow = {
   user_id: string;
   name: string;
   duration_minutes: number;
+  /** Гривні; з БД numeric може прийти як рядок. */
+  price: number;
+  category: string | null;
+  description: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -101,9 +105,105 @@ export type ServiceRow = {
 export type CreateServiceInput = {
   name: string;
   duration_minutes: number;
+  price?: number;
+  category?: string | null;
+  description?: string | null;
 };
 
 export type UpdateServiceInput = {
   name?: string;
   duration_minutes?: number;
+  price?: number;
+  category?: string | null;
+  description?: string | null;
+};
+
+export type ProductRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  price: number;
+  stock: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateProductInput = {
+  name: string;
+  price?: number;
+  stock?: number;
+  category?: string | null;
+  description?: string | null;
+};
+
+export type UpdateProductInput = {
+  name?: string;
+  price?: number;
+  stock?: number;
+  category?: string | null;
+  description?: string | null;
+};
+
+/** Рядок позиції замовлення (зберігається в JSON). */
+export type OrderLineItem = {
+  product_name: string;
+  quantity: number;
+};
+
+export type OrderStatus = "new" | "paid" | "cancelled";
+
+export type OrderRow = {
+  id: string;
+  user_id: string;
+  client_name: string;
+  client_phone: string | null;
+  source: string | null;
+  status: OrderStatus;
+  total: number;
+  items: OrderLineItem[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateOrderInput = {
+  client_name: string;
+  client_phone?: string | null;
+  source?: string | null;
+  status?: OrderStatus;
+  total: number;
+  items: OrderLineItem[];
+};
+
+export type UpdateOrderInput = {
+  client_name?: string;
+  client_phone?: string | null;
+  source?: string | null;
+  status?: OrderStatus;
+  total?: number;
+  items?: OrderLineItem[];
+};
+
+export type ExpenseRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  /** Гривні; з БД numeric може прийти як рядок. */
+  amount: number;
+  category: string;
+  notes: string | null;
+  /** Календарний день витрати YYYY-MM-DD. */
+  occurred_on: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateExpenseInput = {
+  title: string;
+  amount: number;
+  category?: string;
+  notes?: string | null;
+  /** YYYY-MM-DD */
+  occurred_on: string;
 };

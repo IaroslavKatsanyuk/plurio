@@ -57,7 +57,7 @@ function toDateTimeLocalValue(datePart: string, timePart: string): string {
 
 const triggerVariants = {
   default:
-    "flex h-10 w-full items-center justify-between rounded-lg border border-violet-700/70 bg-violet-950/50 px-3 py-2 text-left text-sm text-violet-100 outline-none transition hover:bg-violet-900/60 focus-visible:ring-2 focus-visible:ring-violet-500",
+    "flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-left text-sm text-foreground outline-none transition hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
   light:
     "flex h-10 w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 shadow-sm outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-400",
 } as const;
@@ -149,7 +149,7 @@ export function DateTimePickerInput({
         <span
           className={cn(
             !displayValue &&
-              (variant === "light" ? "text-slate-400" : "text-violet-400"),
+              (variant === "light" ? "text-slate-400" : "text-muted-foreground"),
           )}
         >
           {displayValue || placeholder}
@@ -169,7 +169,7 @@ export function DateTimePickerInput({
               "inline-flex h-5 w-5 items-center justify-center rounded-sm transition",
               variant === "light"
                 ? "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                : "text-violet-300 hover:bg-violet-800/60 hover:text-violet-50",
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
             <X className="h-4 w-4 shrink-0" />
@@ -178,7 +178,7 @@ export function DateTimePickerInput({
           <CalendarDays
             className={cn(
               "h-4 w-4 shrink-0",
-              variant === "light" ? "text-slate-500" : "text-violet-300",
+              variant === "light" ? "text-slate-500" : "text-muted-foreground",
             )}
           />
         )}

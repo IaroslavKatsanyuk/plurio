@@ -94,24 +94,24 @@ export function WorkScheduleSettingsCard({
   }
 
   return (
-    <section className="mt-8 rounded-2xl border border-violet-800/50 bg-violet-950/40 p-6 text-violet-50 shadow-lg">
+    <section className="mt-8 rounded-2xl border border-border bg-card p-6 text-card-foreground shadow-lg">
       <div className="mb-4 flex items-center gap-2">
-        <CalendarClock className="h-5 w-5 text-violet-300" aria-hidden />
+        <CalendarClock className="h-5 w-5 text-muted-foreground" aria-hidden />
         <h2 className="text-lg font-semibold">Робочий графік і бронювання</h2>
       </div>
-      <p className="mb-4 text-sm text-violet-200">
+      <p className="mb-4 text-sm text-muted-foreground">
         Календар слотів у Telegram-боті та перевірка нових записів у дашборді йдуть за цим графіком (локальний час
         обраної зони).
       </p>
       {!hasExplicitSchedule ? (
-        <p className="mb-4 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-100">
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Зараз діє стандартний режим як раніше: щодня 08:00–21:00. Збережи форму нижче, щоб зафіксувати власний
           графік у профілі.
         </p>
       ) : null}
 
       <div className="mb-6 max-w-xl">
-        <label className="mb-1 block text-xs font-medium text-violet-200">Часова зона (IANA)</label>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Часова зона (IANA)</label>
         <select
           value={useCustomTz ? "__custom__" : timezone}
           onChange={(e) => {
@@ -128,7 +128,7 @@ export function WorkScheduleSettingsCard({
             }
             setSavedOk(false);
           }}
-          className="mb-2 w-full rounded-md border border-violet-600/50 bg-violet-950/80 px-3 py-2 text-sm text-violet-50"
+          className="mb-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
         >
           {COMMON_TIMEZONES.map((z) => (
             <option key={z} value={z}>
@@ -146,7 +146,7 @@ export function WorkScheduleSettingsCard({
               setSavedOk(false);
             }}
             placeholder="наприклад Europe/Vienna"
-            className="w-full rounded-md border border-violet-600/50 bg-violet-950/80 px-3 py-2 text-sm text-violet-50 placeholder:text-violet-500"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
           />
         ) : null}
       </div>
@@ -155,14 +155,14 @@ export function WorkScheduleSettingsCard({
         {WEEKDAY_KEYS.map((key) => (
           <div
             key={key}
-            className="flex flex-col gap-2 rounded-lg border border-violet-800/40 bg-violet-900/20 px-3 py-3 sm:flex-row sm:items-center sm:gap-4"
+            className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 px-3 py-3 sm:flex-row sm:items-center sm:gap-4"
           >
-            <label className="flex min-w-[9rem] cursor-pointer items-center gap-2 text-sm text-violet-100">
+            <label className="flex min-w-[9rem] cursor-pointer items-center gap-2 text-sm text-foreground">
               <input
                 type="checkbox"
                 checked={weekly[key].enabled}
                 onChange={(e) => setDay(key, { enabled: e.target.checked })}
-                className="rounded border-violet-500 text-violet-400 focus:ring-violet-500"
+                className="rounded border-primary text-muted-foreground focus:ring-ring"
               />
               {DAY_LABELS[key]}
             </label>
@@ -172,15 +172,15 @@ export function WorkScheduleSettingsCard({
                 disabled={!weekly[key].enabled}
                 value={weekly[key].start}
                 onChange={(e) => setDay(key, { start: e.target.value })}
-                className="rounded-md border border-violet-600/50 bg-violet-950/80 px-2 py-1.5 text-sm text-violet-50 disabled:opacity-50"
+                className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-50"
               />
-              <span className="text-violet-400">—</span>
+              <span className="text-muted-foreground">—</span>
               <input
                 type="time"
                 disabled={!weekly[key].enabled}
                 value={weekly[key].end}
                 onChange={(e) => setDay(key, { end: e.target.value })}
-                className="rounded-md border border-violet-600/50 bg-violet-950/80 px-2 py-1.5 text-sm text-violet-50 disabled:opacity-50"
+                className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground disabled:opacity-50"
               />
             </div>
           </div>
@@ -191,17 +191,17 @@ export function WorkScheduleSettingsCard({
         type="button"
         onClick={() => void onSave()}
         disabled={pending}
-        className="mt-6 rounded-lg border border-violet-600/60 bg-violet-800/40 px-4 py-2 text-sm font-medium text-violet-50 transition hover:bg-violet-700/50 disabled:opacity-60"
+        className="mt-6 rounded-lg border border-primary bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
       >
         {pending ? "Збереження…" : "Зберегти графік"}
       </button>
       {error ? (
-        <p className="mt-3 text-sm text-red-300" role="alert">
+        <p className="mt-3 text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}
       {savedOk ? (
-        <p className="mt-3 text-sm font-medium text-emerald-300">Збережено.</p>
+        <p className="mt-3 text-sm font-medium text-emerald-700">Збережено.</p>
       ) : null}
     </section>
   );

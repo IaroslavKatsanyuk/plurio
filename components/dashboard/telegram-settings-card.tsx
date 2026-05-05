@@ -56,56 +56,56 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
   }
 
   return (
-    <section className="rounded-2xl border border-violet-800/50 bg-violet-950/40 p-6 text-violet-50 shadow-lg">
+    <section className="rounded-2xl border border-border bg-card p-6 text-card-foreground shadow-lg">
       <div className="mb-4 flex items-center gap-2">
-        <MessageCircle className="h-5 w-5 text-violet-300" aria-hidden />
+        <MessageCircle className="h-5 w-5 text-muted-foreground" aria-hidden />
         <h2 className="text-lg font-semibold">Telegram-нагадування</h2>
       </div>
-      <p className="mb-4 text-sm text-violet-200">
+      <p className="mb-4 text-sm text-muted-foreground">
         Миттєве підтвердження в Telegram надсилається лише клієнтам, які відкрили персональне посилання («Telegram
         link» у рядку клієнта) — у таблиці має бути статус «Підключено». Лише нік у полі недостатньо. Нагадування
         ~за 2 год до візиту потребує cron у Supabase.
       </p>
-      <p className="mb-4 text-sm text-violet-200">
+      <p className="mb-4 text-sm text-muted-foreground">
         У боті для клієнта: «Запис» (послуга → місяць → день → час → підтвердження) і «Мої записи», команди /menu та
         /help. Якщо ти підключив Telegram у налаштуваннях, отримаєш повідомлення про нові записи з бота та бейдж на
         дзвіночку біля «Записів».
       </p>
       {telegramLinked ? (
-        <p className="text-sm font-medium text-emerald-300">Бота підключено.</p>
+        <p className="text-sm font-medium text-emerald-700">Бота підключено.</p>
       ) : (
-        <p className="mb-4 text-sm text-violet-300">Бот ще не підключений.</p>
+        <p className="mb-4 text-sm text-muted-foreground">Бот ще не підключений.</p>
       )}
       <button
         type="button"
         onClick={() => void generateLink()}
         disabled={pending}
-        className="rounded-lg border border-violet-600/60 bg-violet-800/40 px-4 py-2 text-sm font-medium text-violet-50 transition hover:bg-violet-700/50 disabled:opacity-60"
+        className="rounded-lg border border-primary bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
       >
         {pending ? "Зачекай…" : "Отримати посилання для Telegram"}
       </button>
       {error ? (
-        <p className="mt-3 text-sm text-red-300" role="alert">
+        <p className="mt-3 text-sm text-red-600" role="alert">
           {error}
         </p>
       ) : null}
       {deepLink ? (
-        <div className="mt-4 rounded-lg border border-violet-700/50 bg-violet-900/30 p-3">
-          <p className="mb-2 text-xs text-violet-300">Відкрий посилання й натисни «Start»:</p>
+        <div className="mt-4 rounded-lg border border-border bg-muted p-3">
+          <p className="mb-2 text-xs text-muted-foreground">Відкрий посилання й натисни «Start»:</p>
           <a
             href={deepLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="break-all text-sm text-violet-200 underline hover:text-white"
+            className="break-all text-sm text-primary underline hover:opacity-90"
           >
             {deepLink}
           </a>
         </div>
       ) : null}
 
-      <div className="mt-6 border-t border-violet-700/40 pt-4">
-        <p className="mb-2 text-sm font-medium text-violet-100">Чому не прийшло повідомлення клієнту?</p>
-        <p className="mb-3 text-xs text-violet-300">
+      <div className="mt-6 border-t border-border pt-4">
+        <p className="mb-2 text-sm font-medium text-foreground">Чому не прийшло повідомлення клієнту?</p>
+        <p className="mb-3 text-xs text-muted-foreground">
           Опційно вкажи UUID клієнта з таблиці клієнтів — перевіримо лише твої дані, без секретів.
         </p>
         <input
@@ -113,18 +113,18 @@ export function TelegramSettingsCard({ telegramLinked }: Props) {
           value={diagClientId}
           onChange={(e) => setDiagClientId(e.target.value)}
           placeholder="client_id (опційно)"
-          className="mb-2 w-full max-w-md rounded-md border border-violet-600/50 bg-violet-950/80 px-3 py-2 text-sm text-violet-50 placeholder:text-violet-500"
+          className="mb-2 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
         />
         <button
           type="button"
           onClick={() => void runNotifyDiagnostic()}
           disabled={diagPending}
-          className="rounded-lg border border-amber-600/60 bg-amber-900/30 px-4 py-2 text-sm font-medium text-amber-50 transition hover:bg-amber-800/40 disabled:opacity-60"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900 transition hover:bg-amber-100 disabled:opacity-60"
         >
           {diagPending ? "Перевірка…" : "Запустити діагностику"}
         </button>
         {diagJson ? (
-          <pre className="mt-3 max-h-64 overflow-auto rounded-lg border border-violet-700/50 bg-zinc-950/80 p-3 text-left text-xs text-violet-100">
+          <pre className="mt-3 max-h-64 overflow-auto rounded-lg border border-border bg-muted p-3 text-left text-xs text-foreground">
             {diagJson}
           </pre>
         ) : null}

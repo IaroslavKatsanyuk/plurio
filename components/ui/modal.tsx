@@ -24,17 +24,15 @@ export function Modal({ open, onClose, title, children }: Props) {
       />
       <div
         className={cn(
-          "relative z-10 w-full max-w-2xl rounded-2xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-5 text-violet-50 shadow-xl",
+          "relative z-10 w-full max-w-2xl rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-xl",
         )}
       >
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-violet-50">
-            {title}
-          </h2>
+          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-2 py-1 text-sm text-violet-300 hover:bg-violet-800/60 hover:text-violet-100"
+            className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             Закрити
           </button>

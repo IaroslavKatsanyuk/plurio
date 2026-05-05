@@ -22,7 +22,7 @@ export function FieldLabel({
 }: React.LabelHTMLAttributes<HTMLLabelElement>) {
   return (
     <label
-      className={cn("text-xs font-medium text-violet-300", className)}
+      className={cn("text-xs font-medium text-muted-foreground", className)}
       {...props}
     />
   );

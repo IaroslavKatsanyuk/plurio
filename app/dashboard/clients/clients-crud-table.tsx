@@ -1,28 +1,30 @@
 "use client";
 
-import {
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  type SortingState,
-  useReactTable,
-  createColumnHelper,
-} from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { flexRender, getCoreRowModel, useReactTable, createColumnHelper } from "@tanstack/react-table";
+import { Link2, Pencil, Search, Trash2 } from "lucide-react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { cn } from "@/lib/utils";
 import type { ClientRow } from "@/services/types";
+
+export type ClientsCrudTableRef = {
+  openCreateModal: () => void;
+};
 
 type Props = {
   initialClients: ClientRow[];
+  /** Для кнопки «Експорт CSV» у шапці сторінки (відфільтровані рядки). */
+  onFilteredRowsChange?: (rows: ClientRow[]) => void;
 };
 
 type ClientFormState = {
   name: string;
   phone: string;
   telegram_username: string;
+  notes: string;
 };
 
 const columnHelper = createColumnHelper<ClientRow>();
@@ -32,6 +34,7 @@ function defaultForm(): ClientFormState {
     name: "",
     phone: "",
     telegram_username: "",
+    notes: "",
   };
 }
 
@@ -45,10 +48,17 @@ function toTelegramUrl(username: string): string {
   return `https://t.me/${normalized}`;
 }
 
-export function ClientsCrudTable({ initialClients }: Props) {
+function formatTelegramDisplay(username: string): string {
+  const u = username.replace(/^@+/, "").trim();
+  return u ? `@${u}` : username;
+}
+
+export const ClientsCrudTable = forwardRef<ClientsCrudTableRef, Props>(function ClientsCrudTable(
+  { initialClients, onFilteredRowsChange },
+  ref,
+) {
   const [rows, setRows] = useState<ClientRow[]>(initialClients);
   const [query, setQuery] = useState("");
-  const [sorting, setSorting] = useState<SortingState>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -61,6 +71,14 @@ export function ClientsCrudTable({ initialClients }: Props) {
     deepLink: string;
   } | null>(null);
 
+  useImperativeHandle(ref, () => ({
+    openCreateModal: () => {
+      setCreateForm(defaultForm());
+      setError(null);
+      setIsCreateOpen(true);
+    },
+  }));
+
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) {
@@ -70,32 +88,41 @@ export function ClientsCrudTable({ initialClients }: Props) {
       const name = row.name.toLowerCase();
       const phone = (row.phone ?? "").toLowerCase();
       const tg = (row.telegram_username ?? "").toLowerCase();
-      return name.includes(q) || phone.includes(q) || tg.includes(q);
+      const notes = (row.notes ?? "").toLowerCase();
+      return name.includes(q) || phone.includes(q) || tg.includes(q) || notes.includes(q);
     });
   }, [query, rows]);
+
+  useEffect(() => {
+    onFilteredRowsChange?.(filteredRows);
+  }, [filteredRows, onFilteredRowsChange]);
 
   const columns = useMemo(
     () => [
       columnHelper.accessor("id", {
         header: "ID",
+        enableSorting: false,
         cell: (info) => (
-          <span className="font-mono text-xs">{info.getValue().slice(0, 8)}</span>
+          <span className="font-mono text-xs text-muted-foreground">{info.getValue().slice(0, 8)}</span>
         ),
       }),
       columnHelper.accessor("name", {
         header: "Ім'я",
+        enableSorting: false,
+        cell: (info) => <span className="font-medium text-foreground">{info.getValue()}</span>,
       }),
       columnHelper.accessor("phone", {
         header: "Телефон",
+        enableSorting: false,
         cell: (info) => {
           const phone = info.getValue();
           if (!phone) {
-            return "—";
+            return <span className="text-xs text-muted-foreground">—</span>;
           }
           return (
             <a
               href={toTelHref(phone)}
-              className="underline decoration-violet-400/70 underline-offset-2 hover:text-violet-200"
+              className="text-sm text-blue-600 underline underline-offset-2 hover:text-blue-700"
             >
               {phone}
             </a>
@@ -104,27 +131,28 @@ export function ClientsCrudTable({ initialClients }: Props) {
       }),
       columnHelper.accessor("telegram_username", {
         header: "Telegram",
+        enableSorting: false,
         cell: (info) => {
           const username = info.getValue();
           const linked = info.row.original.telegram_chat_id != null;
           if (!username) {
-            return "—";
+            return <span className="text-xs text-muted-foreground">—</span>;
           }
           return (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <a
                 href={toTelegramUrl(username)}
                 target="_blank"
                 rel="noreferrer noopener"
-                className="underline decoration-violet-400/70 underline-offset-2 hover:text-violet-200"
+                className="text-sm text-blue-600 underline underline-offset-2 hover:text-blue-700"
               >
-                {username}
+                {formatTelegramDisplay(username)}
               </a>
               <span
                 className={
                   linked
-                    ? "inline-block w-fit rounded-full border border-emerald-400/50 bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-200"
-                    : "inline-block w-fit rounded-full border border-zinc-400/40 bg-zinc-500/20 px-2 py-0.5 text-[11px] text-zinc-200"
+                    ? "inline-flex w-fit rounded-full border border-green-200 bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800"
+                    : "inline-flex w-fit rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
                 }
               >
                 {linked ? "Підключено" : "Не підключено"}
@@ -133,59 +161,83 @@ export function ClientsCrudTable({ initialClients }: Props) {
           );
         },
       }),
+      columnHelper.accessor("notes", {
+        header: "Нотатки",
+        enableSorting: false,
+        cell: (info) => {
+          const notes = info.getValue();
+          if (!notes?.trim()) {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
+          return (
+            <span className="line-clamp-2 max-w-[220px] text-xs text-muted-foreground" title={notes}>
+              {notes}
+            </span>
+          );
+        },
+      }),
       columnHelper.display({
         id: "actions",
         header: "Дії",
-        cell: ({ row }) => (
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="default"
-              className="border-amber-300/80 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 hover:text-amber-50"
-              onClick={() => {
-                setEditingId(row.original.id);
-                setEditForm({
-                  name: row.original.name,
-                  phone: row.original.phone ?? "",
-                  telegram_username: row.original.telegram_username ?? "",
-                });
-                setError(null);
-              }}
-            >
-              Редагувати
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-violet-400/80 bg-violet-500/20 text-violet-100 hover:bg-violet-500/35 hover:text-violet-50"
-              onClick={() => void onGenerateTelegramLink(row.original)}
-              disabled={pending}
-            >
-              Telegram link
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-red-300/80 bg-red-500/20 text-red-100 hover:bg-red-500/35 hover:text-red-50"
-              onClick={() => void onDelete(row.original.id)}
-            >
-              Видалити
-            </Button>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const canTelegramLink = Boolean(row.original.telegram_username?.trim());
+          return (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <button
+                type="button"
+                title="Редагувати"
+                aria-label="Редагувати клієнта"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 shadow-sm transition-colors hover:bg-amber-200"
+                onClick={() => {
+                  setEditingId(row.original.id);
+                  setEditForm({
+                    name: row.original.name,
+                    phone: row.original.phone ?? "",
+                    telegram_username: row.original.telegram_username ?? "",
+                    notes: row.original.notes ?? "",
+                  });
+                  setError(null);
+                }}
+              >
+                <Pencil className="h-4 w-4" aria-hidden />
+              </button>
+              <button
+                type="button"
+                title={canTelegramLink ? "Посилання Telegram" : "Спочатку вкажіть Telegram username"}
+                aria-label="Згенерувати посилання Telegram"
+                className={cn(
+                  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 transition-colors",
+                  canTelegramLink
+                    ? "border-primary bg-primary/10 text-primary hover:bg-primary/15"
+                    : "cursor-not-allowed border-muted bg-muted/40 text-muted-foreground",
+                )}
+                onClick={() => void onGenerateTelegramLink(row.original)}
+                disabled={pending || !canTelegramLink}
+              >
+                <Link2 className="h-4 w-4" aria-hidden />
+              </button>
+              <button
+                type="button"
+                title="Видалити"
+                aria-label="Видалити клієнта"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-100 text-rose-700 transition-colors hover:bg-rose-200"
+                onClick={() => void onDelete(row.original.id)}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          );
+        },
       }),
     ],
-    [],
+    [pending],
   );
 
   const table = useReactTable({
     data: filteredRows,
     columns,
-    state: { sorting },
-    onSortingChange: setSorting,
+    enableSorting: false,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   async function onCreate() {
@@ -204,6 +256,7 @@ export function ClientsCrudTable({ initialClients }: Props) {
           name: createForm.name,
           phone: createForm.phone || null,
           telegram_username: createForm.telegram_username || null,
+          notes: createForm.notes.trim() || null,
         }),
       });
       const json = (await response.json()) as
@@ -240,6 +293,7 @@ export function ClientsCrudTable({ initialClients }: Props) {
           name: editForm.name,
           phone: editForm.phone || null,
           telegram_username: editForm.telegram_username || null,
+          notes: editForm.notes.trim() || null,
         }),
       });
       const json = (await response.json()) as
@@ -258,6 +312,9 @@ export function ClientsCrudTable({ initialClients }: Props) {
   }
 
   async function onDelete(id: string) {
+    if (!window.confirm("Видалити клієнта?")) {
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -303,48 +360,29 @@ export function ClientsCrudTable({ initialClients }: Props) {
     }
   }
 
+  const headerGroups = table.getHeaderGroups();
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          onClick={() => {
-            setCreateForm(defaultForm());
-            setError(null);
-            setIsCreateOpen(true);
-          }}
-        >
-          Створити клієнта
-        </Button>
-      </div>
-
-      <Modal
-        open={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
-        title="Створити клієнта"
-      >
+      <Modal open={isCreateOpen} onClose={() => setIsCreateOpen(false)} title="Створити клієнта">
         <div className="grid gap-3">
-          <label className="grid gap-1 text-sm text-violet-200">
-            Ім'я
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            Ім&apos;я
             <Input
               placeholder="Ім'я"
               value={createForm.name}
-              onChange={(e) =>
-                setCreateForm((prev) => ({ ...prev, name: e.target.value }))
-              }
+              onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
             />
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Телефон
             <Input
               placeholder="Телефон"
               value={createForm.phone}
-              onChange={(e) =>
-                setCreateForm((prev) => ({ ...prev, phone: e.target.value }))
-              }
+              onChange={(e) => setCreateForm((prev) => ({ ...prev, phone: e.target.value }))}
             />
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Telegram username
             <Input
               placeholder="Telegram username"
@@ -357,6 +395,18 @@ export function ClientsCrudTable({ initialClients }: Props) {
               }
             />
           </label>
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            Нотатки
+            <textarea
+              className={cn(
+                "min-h-[80px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+              placeholder="Короткі примітки про клієнта…"
+              rows={3}
+              value={createForm.notes}
+              onChange={(e) => setCreateForm((prev) => ({ ...prev, notes: e.target.value }))}
+            />
+          </label>
         </div>
         <div className="mt-3">
           <Button type="button" onClick={() => void onCreate()} disabled={pending}>
@@ -365,86 +415,34 @@ export function ClientsCrudTable({ initialClients }: Props) {
         </div>
       </Modal>
 
-      <section className="rounded-2xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-4 text-violet-50">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-violet-50">
-            Список клієнтів
-          </h2>
-          <Input
-            className="sm:max-w-sm"
-            placeholder="Пошук: ім'я, телефон, telegram"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-
-        {error ? (
-          <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>
-        ) : null}
-
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id} className="border-b border-violet-800/70">
-                  {headerGroup.headers.map((header) => (
-                    <th key={header.id} className="px-3 py-2 text-left font-medium">
-                      {header.isPlaceholder ? null : (
-                        <button
-                          type="button"
-                          onClick={header.column.getToggleSortingHandler()}
-                          className="inline-flex items-center gap-1 text-violet-200 hover:text-violet-50"
-                        >
-                          {flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                          {{
-                            asc: "↑",
-                            desc: "↓",
-                          }[header.column.getIsSorted() as "asc" | "desc"] ?? null}
-                        </button>
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-b border-violet-100 dark:border-violet-900">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-2 align-top">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {editingId ? (
-        <section className="rounded-2xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-4 text-violet-50">
-          <h2 className="mb-3 text-lg font-semibold text-violet-50">
-            Редагувати клієнта
-          </h2>
-          <div className="grid gap-3">
+      <Modal
+        open={editingId !== null}
+        onClose={() => {
+          setEditingId(null);
+          setEditForm(defaultForm());
+          setError(null);
+        }}
+        title="Редагувати клієнта"
+      >
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            Ім&apos;я
             <Input
               placeholder="Ім'я"
               value={editForm.name}
-              onChange={(e) =>
-                setEditForm((prev) => ({ ...prev, name: e.target.value }))
-              }
+              onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
             />
+          </label>
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            Телефон
             <Input
               placeholder="Телефон"
               value={editForm.phone}
-              onChange={(e) =>
-                setEditForm((prev) => ({ ...prev, phone: e.target.value }))
-              }
+              onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))}
             />
+          </label>
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            Telegram username
             <Input
               placeholder="Telegram username"
               value={editForm.telegram_username}
@@ -455,36 +453,113 @@ export function ClientsCrudTable({ initialClients }: Props) {
                 }))
               }
             />
+          </label>
+          <label className="grid gap-1 text-sm text-muted-foreground">
+            Нотатки
+            <textarea
+              className={cn(
+                "min-h-[80px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+              placeholder="Короткі примітки про клієнта…"
+              rows={3}
+              value={editForm.notes}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))}
+            />
+          </label>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Button type="button" onClick={() => void onUpdate()} disabled={pending}>
+            Зберегти
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setEditingId(null);
+              setEditForm(defaultForm());
+              setError(null);
+            }}
+            disabled={pending}
+          >
+            Скасувати
+          </Button>
+        </div>
+      </Modal>
+
+      <section className="rounded-3xl border border-border bg-card p-6 text-card-foreground shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Список клієнтів</h2>
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              className="bg-muted/50 pl-9"
+              placeholder="Пошук: ім'я, телефон, telegram, нотатки"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Пошук клієнтів"
+            />
           </div>
-          <div className="mt-3 flex gap-2">
-            <Button type="button" onClick={() => void onUpdate()} disabled={pending}>
-              Зберегти
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEditingId(null)}
-              disabled={pending}
-            >
-              Скасувати
-            </Button>
-          </div>
-        </section>
-      ) : null}
+        </div>
+
+        {error ? (
+          <p className="mb-3 text-sm text-destructive">{error}</p>
+        ) : null}
+
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full min-w-[880px] border-collapse text-sm">
+            <thead>
+              {headerGroups.map((headerGroup) => (
+                <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
+                  {headerGroup.headers.map((header) => (
+                    <th
+                      key={header.id}
+                      className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {header.isPlaceholder ? null : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                    {rows.length === 0 ? "Клієнтів ще немає." : "Нічого не знайдено за запитом."}
+                  </td>
+                </tr>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b border-border last:border-0">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-3 py-3 align-top">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {telegramLink ? (
-        <section className="rounded-2xl border border-violet-700/60 bg-violet-950/40 p-4 text-violet-50">
-          <h3 className="mb-2 text-sm font-semibold">
-            Telegram-посилання для {telegramLink.clientName}
-          </h3>
-          <p className="mb-2 text-xs text-violet-200">
+        <section className="rounded-2xl border border-border bg-muted/40 p-4 text-foreground">
+          <h3 className="mb-2 text-sm font-semibold">Telegram-посилання для {telegramLink.clientName}</h3>
+          <p className="mb-2 text-xs text-muted-foreground">
             Надішли клієнту це посилання. Після натискання Start бот зможе надсилати нагадування.
           </p>
           <a
             href={telegramLink.deepLink}
             target="_blank"
             rel="noopener noreferrer"
-            className="break-all text-sm text-violet-200 underline hover:text-white"
+            className="break-all text-sm text-primary underline hover:opacity-90"
           >
             {telegramLink.deepLink}
           </a>
@@ -492,4 +567,6 @@ export function ClientsCrudTable({ initialClients }: Props) {
       ) : null}
     </div>
   );
-}
+});
+
+ClientsCrudTable.displayName = "ClientsCrudTable";

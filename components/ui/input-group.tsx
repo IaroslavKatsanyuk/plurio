@@ -9,7 +9,7 @@ export function InputGroup({
   return (
     <div
       className={cn(
-        "flex h-10 w-full items-center rounded-lg border border-violet-700/70 bg-violet-950/40",
+        "flex h-10 w-full items-center rounded-lg border border-input bg-background",
         className,
       )}
       {...props}
@@ -24,7 +24,7 @@ export function InputGroupInput({
   return (
     <input
       className={cn(
-        "h-full w-full bg-transparent px-3 text-sm text-violet-100 outline-none",
+        "h-full w-full bg-transparent px-3 text-sm text-foreground outline-none",
         "[&:-webkit-autofill]:[-webkit-text-fill-color:rgb(237_233_254)]",
         "[&:-webkit-autofill]:[box-shadow:0_0_0_1000px_rgb(39_19_72_/_0.9)_inset]",
         "[&:-webkit-autofill]:[transition:background-color_99999s_ease-out_0s]",
@@ -44,7 +44,7 @@ export function InputGroupAddon({
   return (
     <div
       className={cn(
-        "flex h-full items-center border-l border-violet-700/70 px-3 text-violet-300",
+        "flex h-full items-center border-l border-input px-3 text-muted-foreground",
         className,
       )}
       {...props}

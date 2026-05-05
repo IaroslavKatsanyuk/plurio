@@ -1,4 +1,4 @@
-import { DashboardNavbar } from "@/components/dashboard/navbar";
+import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { TelegramSettingsCard } from "@/components/dashboard/telegram-settings-card";
 import { WorkScheduleSettingsCard } from "@/components/dashboard/work-schedule-settings-card";
 import {
@@ -33,22 +33,18 @@ export default async function SettingsPage() {
     profile.telegram_chat_id !== 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#120726] via-[#0f061f] to-[#080312]">
-      <div className="mx-auto flex min-h-full w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8">
-        <DashboardNavbar active="settings" userEmail={user.email ?? ""} />
-        <main className="min-w-0 flex-1">
-          <header className="mb-6">
-            <h1 className="text-2xl font-semibold text-violet-50">Налаштування</h1>
-            <p className="text-sm text-violet-300">{user.email}</p>
-          </header>
-          <TelegramSettingsCard telegramLinked={telegramLinked} />
-          <WorkScheduleSettingsCard
-            initialTimezone={workInitialTz}
-            initialWeekly={workInitialWeekly}
-            hasExplicitSchedule={workExplicitSchedule}
-          />
-        </main>
-      </div>
-    </div>
+    <DashboardShell
+      active="settings"
+      userEmail={user.email ?? ""}
+      title="Налаштування"
+      subtitle={user.email ?? undefined}
+    >
+      <TelegramSettingsCard telegramLinked={telegramLinked} />
+      <WorkScheduleSettingsCard
+        initialTimezone={workInitialTz}
+        initialWeekly={workInitialWeekly}
+        hasExplicitSchedule={workExplicitSchedule}
+      />
+    </DashboardShell>
   );
 }

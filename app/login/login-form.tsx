@@ -36,7 +36,7 @@ export function LoginForm({ nextPath }: Props) {
       className="flex w-full max-w-sm flex-col gap-4"
     >
       <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-violet-300">
+        <label htmlFor="email" className="text-sm font-medium text-muted-foreground">
           Email
         </label>
         <Input
@@ -50,7 +50,7 @@ export function LoginForm({ nextPath }: Props) {
       <div className="flex flex-col gap-1">
         <label
           htmlFor="password"
-          className="text-sm font-medium text-violet-300"
+          className="text-sm font-medium text-muted-foreground"
         >
           Пароль
         </label>
@@ -73,9 +73,9 @@ export function LoginForm({ nextPath }: Props) {
       >
         {pending ? "Вхід…" : "Увійти"}
       </Button>
-      <p className="text-center text-sm text-violet-300">
+      <p className="text-center text-sm text-muted-foreground">
         Немає акаунта?{" "}
-        <Link href="/register" className="font-medium text-violet-100 underline">
+        <Link href="/register" className="font-medium text-primary underline">
           Реєстрація
         </Link>
       </p>

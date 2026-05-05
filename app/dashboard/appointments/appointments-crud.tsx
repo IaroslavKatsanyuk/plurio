@@ -6,13 +6,14 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/core";
-import { ChevronDown } from "lucide-react";
+import { Calendar, ChevronDown, Search } from "lucide-react";
 import type {
   ClientRow,
   AppointmentRow,
   AppointmentStatus,
   ServiceRow,
 } from "@/services/types";
+import { ExportButton, type CsvColumn } from "@/components/dashboard/export-button";
 import { Button } from "@/components/ui/button";
 import { DateTimePickerInput } from "@/components/ui/date-time-picker-input";
 import { Input } from "@/components/ui/input";
@@ -28,12 +29,16 @@ import {
 } from "@/lib/datetime-kyiv";
 import type { TelegramBookingNotifyMeta } from "@/lib/telegram-immediate-booking";
 import { cn } from "@/lib/utils";
-import { useMemo, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 
 type Props = {
   initialAppointments: AppointmentRow[];
   clients: ClientRow[];
   services: ServiceRow[];
+};
+
+export type AppointmentsCrudRef = {
+  openCreateModal: () => void;
 };
 
 type CreateForm = {
@@ -102,15 +107,15 @@ function getServiceLabel(services: ServiceRow[], serviceId: string): string {
 
 function statusBadgeClass(status: AppointmentStatus): string {
   if (status === "scheduled") {
-    return "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300";
+    return "bg-blue-100 text-blue-800";
   }
   if (status === "confirmed") {
-    return "bg-violet-200 text-violet-800 dark:bg-violet-900 dark:text-violet-200";
+    return "bg-green-100 text-green-800";
   }
   if (status === "cancelled") {
-    return "bg-violet-300 text-violet-900 dark:bg-violet-800 dark:text-violet-100";
+    return "bg-red-100 text-red-800";
   }
-  return "bg-violet-100 text-violet-700 dark:bg-violet-900/70 dark:text-violet-300";
+  return "bg-gray-100 text-gray-800";
 }
 
 function DraggableAppointment({
@@ -132,17 +137,17 @@ function DraggableAppointment({
           ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
           : undefined,
       }}
-      className="rounded-lg border border-violet-700/70 bg-violet-950/50 px-3 py-2"
+      className="rounded-lg border border-input bg-muted/50 px-3 py-2"
       {...listeners}
       {...attributes}
     >
       <p className="font-medium">{row.title ?? "Без назви"}</p>
-      <p className="text-xs text-violet-500">
+      <p className="text-xs text-muted-foreground">
         {formatTimeKyiv(row.starts_at)}
         {" – "}
         {formatTimeKyiv(row.ends_at)}
       </p>
-      <p className="text-xs text-violet-500">{clientName ?? "Без клієнта"}</p>
+      <p className="text-xs text-muted-foreground">{clientName ?? "Без клієнта"}</p>
       <span
         className={cn(
           "mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
@@ -174,11 +179,11 @@ function DroppableDayColumn({
       className={cn(
         "rounded-xl border p-3 transition",
         isOver
-          ? "border-violet-500 bg-violet-100 dark:border-violet-400 dark:bg-violet-900/40"
-          : "border-violet-800/70 bg-violet-950/20",
+          ? "border-primary bg-primary/10  "
+          : "border-border bg-muted/40",
       )}
     >
-      <h3 className="mb-2 font-medium text-violet-100">{title}</h3>
+      <h3 className="mb-2 font-medium text-foreground">{title}</h3>
       <ul className="space-y-2">
         {rows.map((row) => (
           <li key={row.id}>
@@ -193,7 +198,10 @@ function DroppableDayColumn({
   );
 }
 
-export function AppointmentsCrud({ initialAppointments, clients, services }: Props) {
+export const AppointmentsCrud = forwardRef<AppointmentsCrudRef, Props>(function AppointmentsCrud(
+  { initialAppointments, clients, services },
+  ref,
+) {
   const [rows, setRows] = useState<AppointmentRow[]>(initialAppointments);
   const [form, setForm] = useState<CreateForm>(defaultForm());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -208,6 +216,16 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
   const [statusFilter, setStatusFilter] = useState<"all" | AppointmentStatus>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useImperativeHandle(ref, () => ({
+    openCreateModal: () => {
+      setEditingId(null);
+      setForm(defaultForm());
+      setError(null);
+      setIsCreateOpen(true);
+    },
+  }));
 
   const clientMap = useMemo(
     () => new Map(clients.map((c) => [c.id, c.name])),
@@ -216,6 +234,34 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
   const serviceMap = useMemo(
     () => new Map(services.map((service) => [service.id, service])),
     [services],
+  );
+
+  const exportColumns = useMemo<CsvColumn<AppointmentRow>[]>(
+    () => [
+      { label: "ID", value: (r) => r.id },
+      { label: "Назва", value: (r) => r.title ?? "" },
+      {
+        label: "Клієнт",
+        value: (r) => (r.client_id ? (clientMap.get(r.client_id) ?? "") : ""),
+      },
+      {
+        label: "Телефон",
+        value: (r) => {
+          if (!r.client_id) {
+            return "";
+          }
+          return clients.find((c) => c.id === r.client_id)?.phone ?? "";
+        },
+      },
+      {
+        label: "Послуга",
+        value: (r) => (r.service_id ? (serviceMap.get(r.service_id)?.name ?? "") : ""),
+      },
+      { label: "Початок", value: (r) => formatDateTimeKyiv(r.starts_at) },
+      { label: "Кінець", value: (r) => formatDateTimeKyiv(r.ends_at) },
+      { label: "Статус", value: (r) => statusLabels[r.status] },
+    ],
+    [clientMap, serviceMap, clients],
   );
 
   function applyServiceDuration(startsAt: string, serviceId: string): string {
@@ -236,7 +282,22 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
   }
 
   const filteredRows = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
     return rows.filter((row) => {
+      if (q) {
+        const clientName = row.client_id ? (clientMap.get(row.client_id) ?? "").toLowerCase() : "";
+        const phone = row.client_id
+          ? (clients.find((c) => c.id === row.client_id)?.phone ?? "").toLowerCase()
+          : "";
+        const serviceName = row.service_id
+          ? (serviceMap.get(row.service_id)?.name ?? "").toLowerCase()
+          : "";
+        const title = (row.title ?? "").toLowerCase();
+        const hay = `${clientName} ${phone} ${serviceName} ${title}`;
+        if (!hay.includes(q)) {
+          return false;
+        }
+      }
       if (statusFilter !== "all" && row.status !== statusFilter) {
         return false;
       }
@@ -259,7 +320,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
       }
       return true;
     });
-  }, [rows, statusFilter, fromDate, toDate]);
+  }, [rows, statusFilter, fromDate, toDate, searchQuery, clientMap, serviceMap, clients]);
 
   const dayBuckets = useMemo(() => {
     const map = new Map<string, AppointmentRow[]>();
@@ -464,27 +525,13 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          onClick={() => {
-            setEditingId(null);
-            setForm(defaultForm());
-            setError(null);
-            setIsCreateOpen(true);
-          }}
-        >
-          Створити запис
-        </Button>
-      </div>
-
       <Modal
         open={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
         title="Створення запису"
       >
         <div className="grid gap-3">
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Назва
             <Input
               placeholder="Назва"
@@ -492,14 +539,14 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
               onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
             />
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Клієнт
             <div className="relative">
               <select
                 value={form.client_id}
                 onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
                 title={getClientLabel(clients, form.client_id)}
-                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm leading-none text-foreground"
               >
                 <option value="">Без клієнта</option>
                 {clients.map((client) => (
@@ -508,10 +555,10 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Послуга
             <div className="relative">
               <select
@@ -528,7 +575,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   })
                 }
                 title={getServiceLabel(services, form.service_id)}
-                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm leading-none text-foreground"
               >
                 <option value="">Без послуги</option>
                 {services.map((service) => (
@@ -537,10 +584,10 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Початок
             <DateTimePickerInput
               value={form.starts_at}
@@ -556,7 +603,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
               calendarPlacement="above"
             />
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Статус
             <div className="relative">
               <select
@@ -568,7 +615,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   }))
                 }
                 title={statusLabels[form.status]}
-                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm leading-none text-foreground"
               >
                 {statuses.map((status) => (
                   <option key={status} value={status}>
@@ -576,7 +623,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
         </div>
@@ -597,7 +644,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
         title="Редагування запису"
       >
         <div className="grid gap-3">
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Назва
             <Input
               placeholder="Назва"
@@ -605,14 +652,14 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
               onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
             />
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Клієнт
             <div className="relative">
               <select
                 value={form.client_id}
                 onChange={(e) => setForm((prev) => ({ ...prev, client_id: e.target.value }))}
                 title={getClientLabel(clients, form.client_id)}
-                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm leading-none text-foreground"
               >
                 <option value="">Без клієнта</option>
                 {clients.map((client) => (
@@ -621,10 +668,10 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Послуга
             <div className="relative">
               <select
@@ -641,7 +688,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   })
                 }
                 title={getServiceLabel(services, form.service_id)}
-                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm leading-none text-foreground"
               >
                 <option value="">Без послуги</option>
                 {services.map((service) => (
@@ -650,10 +697,10 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Початок
             <DateTimePickerInput
               value={form.starts_at}
@@ -669,7 +716,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
               calendarPlacement="above"
             />
           </label>
-          <label className="grid gap-1 text-sm text-violet-200">
+          <label className="grid gap-1 text-sm text-muted-foreground">
             Статус
             <div className="relative">
               <select
@@ -681,7 +728,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   }))
                 }
                 title={statusLabels[form.status]}
-                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 pr-10 text-sm leading-none text-violet-100"
+                className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm leading-none text-foreground"
               >
                 {statuses.map((status) => (
                   <option key={status} value={status}>
@@ -689,7 +736,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-violet-200" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </label>
         </div>
@@ -712,61 +759,107 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
         </div>
       </Modal>
 
-      <section className="rounded-2xl border border-violet-800/70 bg-gradient-to-b from-[#2a1050] to-[#170a2d] p-4 text-violet-50">
-        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-violet-50">
-            Список записів
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant={viewMode === "table" ? "default" : "outline"}
-              onClick={() => setViewMode("table")}
-            >
-              Таблиця
-            </Button>
-            <Button
-              type="button"
-              variant={viewMode === "day" ? "default" : "outline"}
-              onClick={() => setViewMode("day")}
-            >
-              День
-            </Button>
-            <Button
-              type="button"
-              variant={viewMode === "week" ? "default" : "outline"}
-              onClick={() => setViewMode("week")}
-            >
-              Тиждень
-            </Button>
+      <section className="rounded-2xl border border-border bg-card p-6 text-card-foreground shadow-sm">
+        <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <h2 className="text-lg font-semibold text-foreground">Список записів</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportButton data={filteredRows} columns={exportColumns} filename="appointments" />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={viewMode === "table" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("table")}
+              >
+                Таблиця
+              </Button>
+              <Button
+                type="button"
+                variant={viewMode === "day" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("day")}
+              >
+                День
+              </Button>
+              <Button
+                type="button"
+                variant={viewMode === "week" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("week")}
+              >
+                Тиждень
+              </Button>
+            </div>
           </div>
         </div>
 
-        <div className="mb-4 grid gap-3 sm:grid-cols-3">
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as "all" | AppointmentStatus)
-            }
-            className="h-10 rounded-lg border border-violet-700/70 bg-violet-950/40 px-3 text-sm leading-none text-violet-100"
-          >
-            <option value="all">Усі статуси</option>
-            {statuses.map((status) => (
-              <option key={status} value={status}>
-                {statusLabels[status]}
-              </option>
-            ))}
-          </select>
-          <DateTimePickerInput
-            value={fromDate}
-            onChange={(nextValue) => setFromDate(nextValue)}
-            placeholder="Від дати"
-          />
-          <DateTimePickerInput
-            value={toDate}
-            onChange={(nextValue) => setToDate(nextValue)}
-            placeholder="До дати"
-          />
+        <div className="mb-4 space-y-3">
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              className="pl-9"
+              placeholder="Пошук за клієнтом, послугою, телефоном..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Пошук записів"
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+              Статус
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) =>
+                    setStatusFilter(e.target.value as "all" | AppointmentStatus)
+                  }
+                  title="Фільтр за статусом"
+                  className="h-10 w-full min-w-0 appearance-none rounded-lg border border-input bg-muted/30 px-3 pr-10 text-sm leading-none text-foreground"
+                >
+                  <option value="all">Усі статуси</option>
+                  {statuses.map((status) => (
+                    <option key={status} value={status}>
+                      {statusLabels[status]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            </label>
+            <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+              Від дати
+              <div className="relative">
+                <Calendar
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  type="date"
+                  className="pl-9"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                />
+              </div>
+            </label>
+            <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+              До дати
+              <div className="relative">
+                <Calendar
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  type="date"
+                  className="pl-9"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                />
+              </div>
+            </label>
+          </div>
         </div>
 
         {error ? (
@@ -787,86 +880,108 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
         ) : null}
 
         {viewMode === "table" ? (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[720px] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-violet-800/70">
-                  <th className="px-3 py-2 text-left font-medium">ID</th>
-                  <th className="px-3 py-2 text-left font-medium">Назва</th>
-                  <th className="px-3 py-2 text-left font-medium">Клієнт</th>
-                  <th className="px-3 py-2 text-left font-medium">Послуга</th>
-                  <th className="px-3 py-2 text-left font-medium">Початок</th>
-                  <th className="px-3 py-2 text-left font-medium">Кінець</th>
-                  <th className="px-3 py-2 text-left font-medium">Статус</th>
-                  <th className="px-3 py-2 text-left font-medium">Дії</th>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    ID
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Назва
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Клієнт
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Послуга
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Початок
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Кінець
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Статус
+                  </th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Дії
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-violet-100 dark:border-violet-900"
-                  >
-                    <td className="px-3 py-2 font-mono text-xs">{row.id.slice(0, 8)}</td>
-                    <td className="px-3 py-2">{row.title ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      {row.client_id ? (clientMap.get(row.client_id) ?? row.client_id) : "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {row.service_id ? (serviceMap.get(row.service_id)?.name ?? row.service_id) : "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {formatDateTimeKyiv(row.starts_at)}
-                    </td>
-                    <td className="px-3 py-2">
-                      {formatDateTimeKyiv(row.ends_at)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
-                          statusBadgeClass(row.status),
-                        )}
-                      >
-                        {statusLabels[row.status]}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setIsCreateOpen(false);
-                            setEditingId(row.id);
-                            setForm({
-                              title: row.title ?? "",
-                              client_id: row.client_id ?? "",
-                              service_id: row.service_id ?? "",
-                              starts_at: toLocalDateTimeInputValue(row.starts_at),
-                              ends_at: toLocalDateTimeInputValue(row.ends_at),
-                              status: row.status,
-                            });
-                            setError(null);
-                          }}
-                          disabled={pending}
-                          className="border-amber-300/80 bg-amber-500/20 text-amber-100 hover:bg-amber-500/35 hover:text-amber-50"
-                        >
-                          Редагувати
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => void onDelete(row.id)}
-                          disabled={pending}
-                          className="border-red-300/80 bg-red-500/20 text-red-100 hover:bg-red-500/35 hover:text-red-50"
-                        >
-                          Видалити
-                        </Button>
-                      </div>
+                {filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-14 text-center text-sm text-muted-foreground">
+                      Записів не знайдено за поточними фільтрами.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredRows.map((row) => (
+                    <tr key={row.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{row.id.slice(0, 8)}</td>
+                      <td className="px-3 py-2.5 font-medium text-foreground">{row.title ?? "—"}</td>
+                      <td className="px-3 py-2.5">
+                        {row.client_id ? (clientMap.get(row.client_id) ?? row.client_id) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground">
+                        {row.service_id ? (serviceMap.get(row.service_id)?.name ?? row.service_id) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums text-foreground">
+                        {formatDateTimeKyiv(row.starts_at)}
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
+                        {formatDateTimeKyiv(row.ends_at)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full px-2 py-0.5 text-xs font-medium",
+                            statusBadgeClass(row.status),
+                          )}
+                        >
+                          {statusLabels[row.status]}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setIsCreateOpen(false);
+                              setEditingId(row.id);
+                              setForm({
+                                title: row.title ?? "",
+                                client_id: row.client_id ?? "",
+                                service_id: row.service_id ?? "",
+                                starts_at: toLocalDateTimeInputValue(row.starts_at),
+                                ends_at: toLocalDateTimeInputValue(row.ends_at),
+                                status: row.status,
+                              });
+                              setError(null);
+                            }}
+                            disabled={pending}
+                          >
+                            Редагувати
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => void onDelete(row.id)}
+                            disabled={pending}
+                          >
+                            Видалити
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -876,7 +991,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
           {viewMode === "day" ? (
             <div className="space-y-3">
               {dayBuckets.length === 0 ? (
-                <p className="text-sm text-violet-500">Немає записів за фільтром.</p>
+                <p className="text-sm text-muted-foreground">Немає записів за фільтром.</p>
               ) : (
                 dayBuckets.map((bucket) => (
                   <DroppableDayColumn
@@ -894,7 +1009,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
           {viewMode === "week" ? (
             <div className="space-y-3">
               {weekBuckets.length === 0 ? (
-                <p className="text-sm text-violet-500">Немає записів за фільтром.</p>
+                <p className="text-sm text-muted-foreground">Немає записів за фільтром.</p>
               ) : (
                 weekBuckets.map((bucket) => {
                   const days = Array.from({ length: 7 }, (_, i) =>
@@ -903,7 +1018,7 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
                   return (
                     <div
                       key={bucket.weekStart}
-                      className="rounded-xl border border-violet-800/70 bg-violet-950/30 p-3"
+                      className="rounded-xl border border-border bg-muted/30 p-3"
                     >
                       <h3 className="mb-2 font-medium">
                         Тиждень від {formatDateTitleKyivFromYmd(bucket.weekStart)}
@@ -934,4 +1049,4 @@ export function AppointmentsCrud({ initialAppointments, clients, services }: Pro
       </section>
     </div>
   );
-}
+});

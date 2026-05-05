@@ -14,8 +14,8 @@ export function Card({
   return (
     <div
       className={cn(
-        "w-full max-w-sm rounded-2xl border border-violet-200 bg-white shadow-sm dark:border-violet-800 dark:bg-violet-950",
-        size === "sm" ? "p-4" : "p-8",
+        "w-full max-w-none rounded-2xl border border-border bg-card text-card-foreground shadow-sm",
+        size === "sm" ? "p-4" : "p-6",
         className,
       )}
       {...props}
