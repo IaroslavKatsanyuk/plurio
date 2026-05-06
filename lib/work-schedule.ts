@@ -3,6 +3,8 @@
  * JSON shape in DB: { "mon": [{ "start": "09:00", "end": "18:00" }], ... }
  */
 
+import type { BookingTimeOffRange } from "@/services/types";
+
 export const DEFAULT_BOOKING_TIMEZONE = "Europe/Kyiv";
 
 export const WEEKDAY_KEYS = [
@@ -235,6 +237,83 @@ export function isAppointmentWithinWorkSchedule(
   return false;
 }
 
+/** Календарний день (YYYY-MM-DD) у зоні tz для миті UTC. */
+export function formatZonedYmd(iso: string, tz: string): string | null {
+  const instant = new Date(iso);
+  if (!Number.isFinite(instant.getTime())) {
+    return null;
+  }
+  try {
+    const zs = getZonedYmdHm(instant, tz);
+    return `${zs.y}-${String(zs.m).padStart(2, "0")}-${String(zs.d).padStart(2, "0")}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Чи дата ymd (YYYY-MM-DD) потрапляє в будь-який inclusive-діапазон неробочих днів. */
+export function isYmdFullyInTimeOff(ymd: string, ranges: BookingTimeOffRange[]): boolean {
+  if (!ranges.length) {
+    return false;
+  }
+  return ranges.some((r) => ymd >= r.start_date && ymd <= r.end_date);
+}
+
+function nextIsoYmd(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
+  if (!m) {
+    return ymd;
+  }
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + 1);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+function eachIsoYmdInclusive(lo: string, hi: string): string[] {
+  if (lo > hi) {
+    return eachIsoYmdInclusive(hi, lo);
+  }
+  const out: string[] = [];
+  let x = lo;
+  for (let i = 0; i < 400 && x <= hi; i += 1) {
+    out.push(x);
+    if (x === hi) {
+      break;
+    }
+    x = nextIsoYmd(x);
+  }
+  return out;
+}
+
+/**
+ * Чи інтервал запису перетинає хоча б один календарний день, повністю в неробочому діапазоні.
+ * Для типового запису в межах одного локального дня достньо однієї перевірки.
+ */
+export function isAppointmentBlockedByTimeOff(
+  startsAtIso: string,
+  endsAtIso: string,
+  tz: string,
+  ranges: BookingTimeOffRange[],
+): boolean {
+  if (!ranges.length) {
+    return false;
+  }
+  const startYmd = formatZonedYmd(startsAtIso, tz);
+  if (!startYmd) {
+    return false;
+  }
+  const endInstant = new Date(endsAtIso);
+  if (!Number.isFinite(endInstant.getTime())) {
+    return isYmdFullyInTimeOff(startYmd, ranges);
+  }
+  const endProbeIso = new Date(Math.max(endInstant.getTime() - 1, 0)).toISOString();
+  const endYmd = formatZonedYmd(endProbeIso, tz);
+  if (!endYmd) {
+    return isYmdFullyInTimeOff(startYmd, ranges);
+  }
+  return eachIsoYmdInclusive(startYmd, endYmd).some((d) => isYmdFullyInTimeOff(d, ranges));
+}
+
 export function getWeekdayKeyAtUtcMs(utcMs: number, tz: string): WeekdayKey | null {
   try {
     return getZonedYmdHm(new Date(utcMs), tz).weekday;
@@ -390,8 +469,10 @@ export function hasAnyBookableSlotInZonedBookingMonths(params: {
   schedule: WorkWeeklySchedule;
   slotStepMinutes: number;
   nowUtcMs: number;
+  /** Якщо задано — дні всередині цих inclusive-діапазонів пропускаються. */
+  timeOffRanges?: BookingTimeOffRange[];
 }): boolean {
-  const { tz, durationMs, busy, schedule, slotStepMinutes, nowUtcMs } = params;
+  const { tz, durationMs, busy, schedule, slotStepMinutes, nowUtcMs, timeOffRanges } = params;
   const months = nextThreeZonedYearMonths(tz);
   const today = zonedTodayYmd(tz);
   for (const ym of months) {
@@ -399,6 +480,10 @@ export function hasAnyBookableSlotInZonedBookingMonths(params: {
     const dim = daysInMonth(ys, ms);
     const startDay = ym === yearMonthKey(today.y, today.m) ? today.d : 1;
     for (let day = startDay; day <= dim; day += 1) {
+      const ymd = `${ys}-${String(ms).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (timeOffRanges?.length && isYmdFullyInTimeOff(ymd, timeOffRanges)) {
+        continue;
+      }
       const dayStartMs = zonedWallMidnightUtcMs(ys, ms, day, tz);
       const weekday = getWeekdayKeyAtUtcMs(dayStartMs, tz);
       if (!weekday) continue;

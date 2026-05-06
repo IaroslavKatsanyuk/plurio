@@ -1,8 +1,12 @@
-import { isAppointmentWithinWorkSchedule } from "@/lib/work-schedule";
+import {
+  isAppointmentBlockedByTimeOff,
+  isAppointmentWithinWorkSchedule,
+} from "@/lib/work-schedule";
 import {
   runTelegramBookingNotification,
   type TelegramBookingNotifyMeta,
 } from "@/lib/telegram-immediate-booking";
+import { getBookingTimeOffRangesForUserId } from "./booking-time-off.service";
 import { getBookingWorkContextForUser } from "./profile.service";
 import { getAuthenticatedContext } from "./session";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -114,6 +118,18 @@ export async function createAppointment(
       error: {
         code: "OUTSIDE_WORK_HOURS",
         message: "Обраний час поза робочим графіком. Змініть час або оновіть графік у налаштуваннях.",
+      },
+    };
+  }
+
+  const timeOffRanges = await getBookingTimeOffRangesForUserId(supabase, userId);
+  if (isAppointmentBlockedByTimeOff(input.starts_at, input.ends_at, workCtx.timezone, timeOffRanges)) {
+    return {
+      ok: false,
+      error: {
+        code: "TIME_OFF_BLOCKED",
+        message:
+          "Цей день або період позначено як неробочий (відпустка тощо). Змініть дату або приберіть період у налаштуваннях.",
       },
     };
   }
@@ -283,6 +299,20 @@ export async function updateAppointment(
           code: "OUTSIDE_WORK_HOURS",
           message:
             "Обраний час поза робочим графіком. Змініть час або оновіть графік у налаштуваннях.",
+        },
+      };
+    }
+
+    const timeOffRanges = await getBookingTimeOffRangesForUserId(supabase, userId);
+    if (
+      isAppointmentBlockedByTimeOff(nextStartsAt, nextEndsAt, workCtx.timezone, timeOffRanges)
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "TIME_OFF_BLOCKED",
+          message:
+            "Цей день або період позначено як неробочий. Змініть дату або оновіть неробочі дні в налаштуваннях.",
         },
       };
     }

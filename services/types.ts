@@ -207,3 +207,74 @@ export type CreateExpenseInput = {
   /** YYYY-MM-DD */
   occurred_on: string;
 };
+
+/** Рядок позиції інвойсу (зберігається в JSON). */
+export type InvoiceLineItem = {
+  description: string;
+  quantity: number;
+  unit_price: number;
+};
+
+export type InvoiceStatus = "draft" | "issued" | "paid" | "void";
+
+export type InvoiceRow = {
+  id: string;
+  user_id: string;
+  number: number;
+  client_name: string;
+  client_email: string | null;
+  client_phone: string | null;
+  status: InvoiceStatus;
+  items: InvoiceLineItem[];
+  total: number;
+  notes: string | null;
+  issued_at: string;
+  due_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateInvoiceInput = {
+  client_name: string;
+  client_email?: string | null;
+  client_phone?: string | null;
+  status?: InvoiceStatus;
+  items: InvoiceLineItem[];
+  notes?: string | null;
+  /** ISO datetime або порожньо — now */
+  issued_at?: string;
+  due_at?: string | null;
+};
+
+export type UpdateInvoiceInput = {
+  client_name?: string;
+  client_email?: string | null;
+  client_phone?: string | null;
+  status?: InvoiceStatus;
+  items?: InvoiceLineItem[];
+  notes?: string | null;
+  issued_at?: string;
+  due_at?: string | null;
+};
+
+/** Діапазон неробочих днів (YYYY-MM-DD, inclusive) у календарі майстра. */
+export type BookingTimeOffRange = {
+  start_date: string;
+  end_date: string;
+};
+
+export type BookingTimeOffRow = {
+  id: string;
+  user_id: string;
+  start_date: string;
+  end_date: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateBookingTimeOffInput = {
+  start_date: string;
+  end_date: string;
+  note?: string | null;
+};

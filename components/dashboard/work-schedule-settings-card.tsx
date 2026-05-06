@@ -151,6 +151,15 @@ export function WorkScheduleSettingsCard({
         ) : null}
       </div>
 
+      <p className="mb-3 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Вихідні щотижня:</span> зніми галочку біля дня — тоді цей день
+        тижня повністю без записів (наприклад, вимкни суботу й неділю). Після змін натисни «Зберегти графік».
+      </p>
+      <p className="mb-3 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Відпустка на конкретні дати:</span> прокрути сторінку нижче —
+        блок «Відпустка та неробочі дні».
+      </p>
+
       <div className="space-y-3">
         {WEEKDAY_KEYS.map((key) => (
           <div

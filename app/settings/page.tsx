@@ -1,3 +1,4 @@
+import { BookingTimeOffSettingsCard } from "@/components/dashboard/booking-time-off-settings-card";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { TelegramSettingsCard } from "@/components/dashboard/telegram-settings-card";
 import { WorkScheduleSettingsCard } from "@/components/dashboard/work-schedule-settings-card";
@@ -7,6 +8,7 @@ import {
   scheduleToWeeklyForm,
 } from "@/lib/work-schedule";
 import { createClient } from "@/lib/supabase/server";
+import { listBookingTimeOff } from "@/services/booking-time-off.service";
 import { getProfile } from "@/services/profile.service";
 
 export default async function SettingsPage() {
@@ -32,6 +34,9 @@ export default async function SettingsPage() {
     profile.telegram_chat_id !== "" &&
     profile.telegram_chat_id !== 0;
 
+  const timeOffResult = await listBookingTimeOff();
+  const timeOffInitial = timeOffResult.ok ? timeOffResult.data : [];
+
   return (
     <DashboardShell
       active="settings"
@@ -45,6 +50,7 @@ export default async function SettingsPage() {
         initialWeekly={workInitialWeekly}
         hasExplicitSchedule={workExplicitSchedule}
       />
+      <BookingTimeOffSettingsCard initialRows={timeOffInitial} />
     </DashboardShell>
   );
 }

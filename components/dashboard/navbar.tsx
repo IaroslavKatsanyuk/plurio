@@ -7,6 +7,7 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   ChevronRight,
+  FileText,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -29,6 +30,7 @@ export type DashboardNavActive =
   | "dashboard"
   | "appointments"
   | "orders"
+  | "invoices"
   | "clients"
   | "services"
   | "products"
@@ -46,6 +48,7 @@ const navItems = [
   { key: "dashboard" as const, href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
   { key: "appointments" as const, href: "/appointments", label: "Записи", icon: CalendarDays },
   { key: "orders" as const, href: "/orders", label: "Замовлення", icon: ShoppingCart },
+  { key: "invoices" as const, href: "/invoices", label: "Інвойси", icon: FileText },
   { key: "clients" as const, href: "/clients", label: "Клієнти", icon: Users },
   { key: "services" as const, href: "/services", label: "Послуги", icon: BriefcaseBusiness },
   { key: "products" as const, href: "/products", label: "Товари", icon: Package },

@@ -2,12 +2,15 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 import {
+  type BookingTimeOffRange,
   computeSlotStartsForWorkDay,
   daysInMonth,
   DEFAULT_BOOKING_TIMEZONE,
   getWeekdayKeyAtUtcMs,
   hasAnyBookableSlotInZonedBookingMonths,
+  isAppointmentBlockedByTimeOff,
   isAppointmentWithinWorkSchedule,
+  isYmdFullyInTimeOff,
   isValidIanaTimezone,
   legacyDefaultSchedule,
   normalizeProfileWeeklySchedule,
@@ -24,6 +27,7 @@ const SLOT_STEP_MINUTES = 15;
 /** Inline callback prefixes (Telegram callback_data max 64 bytes; UUID = 36 chars). */
 const CB_MONTH = "mn:";
 const CB_DAY = "dy:";
+const CB_BLK = "blk:";
 const CB_SLOT = "sl:";
 const CB_YES = "y:";
 const CB_NO = "n";
@@ -79,6 +83,23 @@ type AppointmentListRow = {
   status: string;
   services: { name: string } | null;
 };
+
+async function loadOwnerTimeOffRanges(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<BookingTimeOffRange[]> {
+  const { data, error } = await supabase
+    .from("booking_time_off")
+    .select("start_date, end_date")
+    .eq("user_id", userId);
+  if (error || !data) {
+    return [];
+  }
+  return (data as { start_date: string; end_date: string }[]).map((r) => ({
+    start_date: String(r.start_date).slice(0, 10),
+    end_date: String(r.end_date).slice(0, 10),
+  }));
+}
 
 async function loadOwnerBookingWork(
   supabase: ReturnType<typeof createClient>,
@@ -602,6 +623,17 @@ async function handleCallbackQuery(params: {
     return;
   }
 
+  const blkParsed = parsePrefixedUuidRest(data, CB_BLK);
+  if (blkParsed) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей день майстер не приймає (відпустка або інший вихідний). Оберіть іншу дату в календарі.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
   const dayParsed = parsePrefixedUuidRest(data, CB_DAY);
   if (dayParsed) {
     const ymd = dayParsed.rest;
@@ -624,6 +656,16 @@ async function handleCallbackQuery(params: {
         botToken,
         chatId,
         "Ця дата вже недоступна для запису. Обери «Запис» знову.",
+      );
+      return;
+    }
+    const dayTimeOff = await loadOwnerTimeOffRanges(supabase, dayCtx.user_id);
+    if (dayTimeOff.length > 0 && isYmdFullyInTimeOff(ymd, dayTimeOff)) {
+      await sendBotMessage(
+        botToken,
+        chatId,
+        "У цей день майстер не приймає (неробочий період). Оберіть інший день.",
+        clientMainMenuKeyboard(),
       );
       return;
     }
@@ -749,6 +791,7 @@ async function sendMonthPickerForService(params: {
   }
 
   const ownerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+  const timeOffRanges = await loadOwnerTimeOffRanges(supabase, ctx.user_id);
   const { startMs, endMs } = zonedThreeMonthBusyRangeUtc(ownerBook.tz);
   const busy = await loadBusyAppointments(
     supabase,
@@ -767,6 +810,7 @@ async function sendMonthPickerForService(params: {
       schedule: ownerBook.schedule,
       slotStepMinutes: SLOT_STEP_MINUTES,
       nowUtcMs: nowUtc,
+      timeOffRanges,
     })
   ) {
     const emptyKb: InlineKeyboardButton[][] = [
@@ -848,6 +892,7 @@ async function sendDaysForMonthKeyboard(params: {
   }
 
   const monthOwnerBook = await loadOwnerBookingWork(supabase, ctx.user_id);
+  const monthTimeOff = await loadOwnerTimeOffRanges(supabase, ctx.user_id);
   if (!nextThreeZonedYearMonths(monthOwnerBook.tz).includes(yearMonth)) {
     await sendBotMessage(
       botToken,
@@ -865,9 +910,10 @@ async function sendDaysForMonthKeyboard(params: {
   let dRow: InlineKeyboardButton[] = [];
   for (let day = 1; day <= dim; day += 1) {
     const ymd = `${yearMonth}-${String(day).padStart(2, "0")}`;
+    const blocked = monthTimeOff.length > 0 && isYmdFullyInTimeOff(ymd, monthTimeOff);
     dRow.push({
-      text: String(day),
-      callback_data: `${CB_DAY}${serviceId}:${ymd}`,
+      text: blocked ? "✕" : String(day),
+      callback_data: blocked ? `${CB_BLK}${serviceId}:${ymd}` : `${CB_DAY}${serviceId}:${ymd}`,
     });
     if (dRow.length >= 7) {
       dayRows.push(dRow);
@@ -889,7 +935,7 @@ async function sendDaysForMonthKeyboard(params: {
   await sendBotMessage(
     botToken,
     chatId,
-    `Обери день — ${monthTitleUk(yearMonth)} (усі дні місяця). Послуга «${(service as ServiceRow).name}». Минуле — не для запису.`,
+    `Обери день — ${monthTitleUk(yearMonth)} (усі дні місяця). Послуга «${(service as ServiceRow).name}». Минуле — не для запису. «✕» — неробочий день майстра.`,
     { inline_keyboard: inlineKeyboard },
   );
 }
@@ -941,6 +987,17 @@ async function sendSlotsKeyboard(params: {
       botToken,
       chatId,
       "Цей день уже минув. Обери сьогоднішню або майбутню дату.",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const slotTimeOff = await loadOwnerTimeOffRanges(supabase, ctx.user_id);
+  if (slotTimeOff.length > 0 && isYmdFullyInTimeOff(localYmd, slotTimeOff)) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "У цей день майстер не приймає (відпустка або інший неробочий період). Оберіть інший день.",
       clientMainMenuKeyboard(),
     );
     return;
@@ -1079,6 +1136,17 @@ async function promptBookingConfirm(params: {
     return;
   }
 
+  const promptTimeOff = await loadOwnerTimeOffRanges(supabase, ctx.user_id);
+  if (isAppointmentBlockedByTimeOff(startsIsoProbe, endsIsoProbe, promptOwnerBook.tz, promptTimeOff)) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей час у неробочий період майстра. Обери інший день через «Запис».",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
   const whenLabel = formatZonedDateTime(startsIsoProbe, promptOwnerBook.tz);
   const svcName = svcRow.name;
   const yesData = `${CB_YES}${serviceId}:${startMs}`;
@@ -1146,6 +1214,17 @@ async function confirmTelegramBooking(params: {
       botToken,
       chatId,
       "Цей час уже поза робочим графіком. Обери інший слот через «Запис».",
+      clientMainMenuKeyboard(),
+    );
+    return;
+  }
+
+  const confirmTimeOff = await loadOwnerTimeOffRanges(supabase, ctx.user_id);
+  if (isAppointmentBlockedByTimeOff(startsIso, endsIso, confirmOwnerBook.tz, confirmTimeOff)) {
+    await sendBotMessage(
+      botToken,
+      chatId,
+      "Цей час у неробочий період майстра. Обери інший слот через «Запис».",
       clientMainMenuKeyboard(),
     );
     return;
